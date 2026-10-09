@@ -15,6 +15,18 @@ class DashboardController extends Controller
         ]);
     }
 
+    public function floorPlan(Request $request): View
+    {
+        $validated = $request->validate([
+            'floor' => ['sometimes', 'integer', 'in:1,2'],
+        ]);
+
+        return view('pages.floor-plan', [
+            'roomsByFloor' => $this->sampleRoomsByFloor(),
+            'initialFloor' => (int) ($validated['floor'] ?? 1),
+        ]);
+    }
+
     public function rooms(Request $request): JsonResponse
     {
         $validated = $request->validate([

@@ -9,9 +9,6 @@ if (canvas && mapStage) {
     const statusSelect = document.querySelector('#status-select');
     const floorSelect = document.querySelector('#floor-select');
     const floorLabel = document.querySelector('#map-floor-label');
-    const sidebarToggle = document.querySelector('#sidebar-toggle');
-    const shell = document.querySelector('#app-shell');
-    const mobileScrim = document.querySelector('#mobile-scrim');
     const designTokens = getComputedStyle(document.documentElement);
     const colorToken = (name) => designTokens.getPropertyValue(name).trim();
 
@@ -449,6 +446,17 @@ if (canvas && mapStage) {
         drawFloorplan();
     });
 
+    const resizeObserver = new ResizeObserver(drawFloorplan);
+    resizeObserver.observe(mapStage);
+    drawFloorplan();
+    loadFloorRooms(state.floor);
+}
+
+const sidebarToggle = document.querySelector('#sidebar-toggle');
+const shell = document.querySelector('#app-shell');
+const mobileScrim = document.querySelector('#mobile-scrim');
+
+if (sidebarToggle && shell && mobileScrim) {
     function setMobileNavigation(open) {
         shell.classList.toggle('mobile-nav-open', open);
         mobileScrim.hidden = !open;
@@ -467,8 +475,9 @@ if (canvas && mapStage) {
             sidebarToggle.title = collapsed ? 'Expand navigation' : 'Collapse navigation';
         }
     });
+
     mobileScrim.addEventListener('click', () => setMobileNavigation(false));
-    document.querySelectorAll('.sidebar a[href^="#"]').forEach((link) => {
+    document.querySelectorAll('.sidebar a').forEach((link) => {
         link.addEventListener('click', () => {
             if (window.matchMedia('(max-width: 680px)').matches) {
                 setMobileNavigation(false);
@@ -484,9 +493,138 @@ if (canvas && mapStage) {
     if (window.matchMedia('(max-width: 680px)').matches) {
         setMobileNavigation(false);
     }
+}
 
-    const resizeObserver = new ResizeObserver(drawFloorplan);
-    resizeObserver.observe(mapStage);
-    drawFloorplan();
-    loadFloorRooms(state.floor);
+const directoryMessage = document.querySelector('#directory-message');
+const directoryGrid = document.querySelector('#room-directory-grid');
+
+if (directoryMessage && directoryGrid) {
+    const floorSelect = document.querySelector('#directory-floor');
+    const statusSelect = document.querySelector('#directory-status');
+    const statuses = {
+        available: 'Available',
+        occupied: 'Occupied',
+        reserved: 'Reserved',
+        maintenance: 'Maintenance',
+        unavailable: 'Unavailable',
+    };
+    let rooms = [];
+    let requestId = 0;
+
+    function renderDirectory() {
+        const status = statusSelect.value;
+        const visibleRooms = rooms.filter((room) => status === 'all' || room.status === status);
+        directoryGrid.replaceChildren();
+
+        visibleRooms.forEach((room) => {
+            const card = document.createElement('article');
+            card.className = 'room-directory-card';
+
+            const top = document.createElement('div');
+            top.className = 'room-directory-card-top';
+            const heading = document.createElement('div');
+            const label = document.createElement('p');
+            label.className = 'eyebrow';
+            label.textContent = 'ILLUSTRATIVE SPACE';
+            const name = document.createElement('h3');
+            name.textContent = room.name;
+            const number = document.createElement('p');
+            number.className = 'room-directory-number';
+            number.textContent = `Room ${room.id}`;
+            heading.append(label, name, number);
+
+            const badge = document.createElement('span');
+            const statusLabel = statuses[room.status] ?? 'Unknown status';
+            badge.className = `status-badge ${statuses[room.status] ? room.status : 'unavailable'}`;
+            badge.textContent = statusLabel;
+            top.append(heading, badge);
+
+            const facts = document.createElement('dl');
+            facts.className = 'directory-facts';
+            [
+                ['Building', 'Main Building · sample'],
+                ['Floor', `${floorSelect.value}${floorSelect.value === '1' ? 'st' : 'nd'} Floor`],
+                ['Capacity', `${room.capacity} seats · sample`],
+                ['Room type', 'Not verified'],
+                ['Equipment', room.equipment],
+                ['Next availability', room.next],
+            ].forEach(([term, value]) => {
+                const item = document.createElement('div');
+                const description = document.createElement('dt');
+                description.textContent = term;
+                const detail = document.createElement('dd');
+                detail.textContent = value;
+                item.append(description, detail);
+                facts.append(item);
+            });
+
+            const actions = document.createElement('div');
+            actions.className = 'room-card-actions';
+            const floorPlanLink = document.createElement('a');
+            floorPlanLink.className = 'text-link';
+            floorPlanLink.textContent = 'View in 3D';
+            const floorPlanUrl = new URL(directoryGrid.dataset.floorPlanUrl, window.location.origin);
+            floorPlanUrl.searchParams.set('floor', floorSelect.value);
+            floorPlanLink.href = floorPlanUrl.toString();
+
+            const reservationLink = document.createElement('a');
+            reservationLink.className = 'text-link';
+            reservationLink.href = directoryGrid.dataset.reservationsUrl;
+            reservationLink.textContent = 'Reservation steps';
+
+            const scheduleLink = document.createElement('a');
+            scheduleLink.className = 'text-link';
+            scheduleLink.href = directoryGrid.dataset.scheduleUrl;
+            scheduleLink.textContent = 'View schedule';
+            actions.append(floorPlanLink, reservationLink, scheduleLink);
+
+            card.append(top, facts, actions);
+            directoryGrid.append(card);
+        });
+
+        directoryMessage.textContent = visibleRooms.length
+            ? `${visibleRooms.length} illustrative room${visibleRooms.length === 1 ? '' : 's'} shown for this floor.`
+            : 'No sample rooms match this status on the selected floor.';
+    }
+
+    async function loadDirectory(floor) {
+        const activeRequestId = ++requestId;
+        directoryMessage.textContent = 'Loading illustrative room inventory…';
+        directoryGrid.setAttribute('aria-busy', 'true');
+
+        try {
+            const url = new URL(directoryMessage.dataset.endpoint, window.location.origin);
+            url.searchParams.set('floor', floor);
+            const response = await fetch(url, { headers: { Accept: 'application/json' } });
+
+            if (!response.ok) {
+                throw new Error(`Room directory request failed with status ${response.status}.`);
+            }
+
+            const payload = await response.json();
+            if (!Array.isArray(payload.data) || activeRequestId !== requestId) {
+                return;
+            }
+
+            rooms = payload.data;
+            renderDirectory();
+        } catch (error) {
+            if (activeRequestId !== requestId) {
+                return;
+            }
+
+            rooms = [];
+            directoryGrid.replaceChildren();
+            directoryMessage.textContent = 'Room inventory could not be loaded. Check the connection and try another floor.';
+            console.error(error);
+        } finally {
+            if (activeRequestId === requestId) {
+                directoryGrid.setAttribute('aria-busy', 'false');
+            }
+        }
+    }
+
+    floorSelect.addEventListener('change', () => loadDirectory(floorSelect.value));
+    statusSelect.addEventListener('change', renderDirectory);
+    loadDirectory(floorSelect.value);
 }
