@@ -13,8 +13,12 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\View\View;
 
-Route::get('/', function (): RedirectResponse {
-    return redirect()->route(Auth::check() ? 'dashboard' : 'landing');
+Route::get('/', function (): RedirectResponse|Response {
+    if (Auth::check()) {
+        return redirect()->route('dashboard');
+    }
+
+    return response()->view('landing');
 })->name('home');
 Route::get('/landing', function (): Response {
     return response()
