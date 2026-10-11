@@ -1,5 +1,5 @@
 <x-layouts.app title="CVR" page-title="Insights & Reports" current-page="reports">
-    <main class="dashboard page-content">
+    <main id="main-content" class="dashboard page-content">
         <x-page-title eyebrow="INSIGHTS" title="Insights & Reports" description="A clear view of facility use, reservations, and room demand—once verified records are connected." />
 
         <section class="report-grid" aria-label="Report areas">
