@@ -12,11 +12,32 @@ class EquipmentRequest extends Model
     /** @use HasFactory<EquipmentRequestFactory> */
     use HasFactory;
 
-    protected $fillable = ['equipment_id', 'reservation_id', 'requested_by', 'quantity', 'status', 'notes'];
+    protected $fillable = [
+        'equipment_id',
+        'reservation_id',
+        'requested_by',
+        'quantity',
+        'status',
+        'notes',
+        'reviewed_by',
+        'reviewed_at',
+        'decision_reason',
+        'released_by',
+        'released_at',
+        'returned_by',
+        'returned_at',
+        'return_notes',
+        'cancellation_reason',
+    ];
 
     protected function casts(): array
     {
-        return ['quantity' => 'integer'];
+        return [
+            'quantity' => 'integer',
+            'reviewed_at' => 'datetime',
+            'released_at' => 'datetime',
+            'returned_at' => 'datetime',
+        ];
     }
 
     public function equipment(): BelongsTo
@@ -32,5 +53,20 @@ class EquipmentRequest extends Model
     public function requester(): BelongsTo
     {
         return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    public function reviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    public function releaser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'released_by');
+    }
+
+    public function returner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'returned_by');
     }
 }

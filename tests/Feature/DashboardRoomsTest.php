@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Building;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -19,21 +20,23 @@ class DashboardRoomsTest extends TestCase
 
     public function test_dashboard_renders_reusable_components_and_room_endpoint(): void
     {
-        $this->get('/')
+        $user = User::factory()->create(['role' => 'admin', 'is_active' => true]);
+
+        $this->actingAs($user)->get(route('dashboard'))
             ->assertOk()
             ->assertSee('Campus Venue Engine')
             ->assertSee('Workspace snapshot')
             ->assertSee('Room availability')
-            ->assertSee('value="1" selected', false)
-            ->assertSee('data-icon="door-closed"', false)
-            ->assertSee('data-icon="door-open"', false)
-            ->assertSee('data-icon="list-checks"', false)
-            ->assertSee('data-endpoint="'.route('dashboard.rooms').'"', false);
+            ->assertSee('data-icon="building"', false)
+            ->assertSee('data-icon="calendar"', false)
+            ->assertSee('data-endpoint="'.route('dashboard.floor-plan-data').'"', false);
     }
 
     public function test_room_endpoint_returns_persisted_rooms_for_requested_floor(): void
     {
-        $this->getJson(route('dashboard.rooms', ['floor' => 1]))
+        $user = User::factory()->create(['role' => 'student', 'is_active' => true]);
+
+        $this->actingAs($user)->getJson(route('dashboard.rooms', ['floor' => 1]))
             ->assertOk()
             ->assertJsonPath('meta.floor', 1)
             ->assertJsonPath('meta.sample', false)
@@ -42,7 +45,9 @@ class DashboardRoomsTest extends TestCase
 
     public function test_room_endpoint_accepts_model_floor_without_rooms(): void
     {
-        $this->getJson(route('dashboard.rooms', ['floor' => 3]))
+        $user = User::factory()->create(['role' => 'student', 'is_active' => true]);
+
+        $this->actingAs($user)->getJson(route('dashboard.rooms', ['floor' => 3]))
             ->assertOk()
             ->assertJsonPath('meta.floor', 3)
             ->assertJsonPath('data', []);

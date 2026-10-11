@@ -3,7 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\CancelReservationRequest;
+use App\Http\Requests\ReservationDecisionRequest;
 use App\Http\Requests\StoreReservationRequest;
+use App\Http\Requests\UpdateReservationRequest;
 use App\Models\Reservation;
 use App\Services\ReservationConflictService;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +20,15 @@ class ReservationController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $reservations = Reservation::query()->with(['room.floor.building', 'user'])->when($request->user(), fn ($query, $user) => $query->where('user_id', $user->getKey()))->latest('starts_at')->paginate(20);
+        $reservations = Reservation::query()
+            ->with([
+                'room.floor.building',
+                'user:id,name,student_number',
+                'reviewer:id,name',
+            ])
+            ->when(! in_array($request->user()?->role, ['admin', 'creator'], true), fn ($query) => $query->where('user_id', $request->user()->getKey()))
+            ->latest('starts_at')
+            ->paginate(20);
 
         return response()->json($reservations);
     }
@@ -48,16 +59,37 @@ class ReservationController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(UpdateReservationRequest $request, Reservation $reservation, ReservationConflictService $service): JsonResponse
     {
-        //
+        $updated = $service->update($request->user(), $reservation, $request->validated());
+
+        return response()->json(['data' => $updated]);
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
+    public function cancel(CancelReservationRequest $request, Reservation $reservation, ReservationConflictService $service): JsonResponse
     {
-        //
+        abort_unless(
+            $reservation->user_id === $request->user()->getKey()
+                || in_array($request->user()->role, ['admin', 'creator'], true),
+            403,
+        );
+
+        return response()->json([
+            'data' => $service->cancel($reservation, $request->validated('cancellation_reason')),
+        ]);
+    }
+
+    public function decide(ReservationDecisionRequest $request, Reservation $reservation, ReservationConflictService $service): JsonResponse
+    {
+        $decision = $request->validated();
+
+        return response()->json([
+            'data' => $service->decide(
+                $request->user(),
+                $reservation,
+                $decision['status'],
+                $decision['decision_reason'] ?? null,
+            ),
+        ]);
     }
 }

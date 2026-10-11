@@ -13,11 +13,11 @@ class Reservation extends Model
     /** @use HasFactory<ReservationFactory> */
     use HasFactory;
 
-    protected $fillable = ['room_id', 'user_id', 'approved_by', 'purpose', 'organization_name', 'starts_at', 'ends_at', 'status', 'notes', 'cancellation_reason', 'approved_at'];
+    protected $fillable = ['room_id', 'user_id', 'approved_by', 'reviewed_by', 'purpose', 'organization_name', 'starts_at', 'ends_at', 'status', 'notes', 'cancellation_reason', 'decision_reason', 'approved_at', 'reviewed_at'];
 
     protected function casts(): array
     {
-        return ['starts_at' => 'datetime', 'ends_at' => 'datetime', 'approved_at' => 'datetime'];
+        return ['starts_at' => 'datetime', 'ends_at' => 'datetime', 'approved_at' => 'datetime', 'reviewed_at' => 'datetime'];
     }
 
     public function room(): BelongsTo
@@ -33,6 +33,11 @@ class Reservation extends Model
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function reviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
     }
 
     public function equipmentRequests(): HasMany

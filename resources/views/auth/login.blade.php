@@ -69,7 +69,7 @@
                         <div class="auth-divider"><span>Account credentials</span></div>
                         <label class="filter-field"><span>Institutional email</span><input type="email" name="email" value="{{ old('email') }}" autocomplete="email"></label>
                         <label class="filter-field"><span>Password</span><input type="password" name="password" autocomplete="current-password"></label>
-                        <div class="auth-form-options"><label class="check-field"><input type="checkbox" name="remember" value="1"><span>Remember me</span></label><a href="#" class="text-link">Forgot password?</a></div>
+                        <div class="auth-form-options"><label class="check-field"><input type="checkbox" name="remember" value="1"><span>Remember me</span></label><span class="text-link">Forgot password? Contact your campus administrator.</span></div>
                     </div>
                     <button class="primary-button" type="submit" data-email-submit hidden>Sign in <span aria-hidden="true">↗</span></button>
                 </form>

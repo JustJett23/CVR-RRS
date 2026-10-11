@@ -17,7 +17,7 @@
                 <li><span class="workflow-number">07</span><div><h3>Submit for review</h3><p>The server rechecks availability and prevents conflicting requests.</p></div><span class="workflow-state">Server validated</span></li>
             </ol>
             @auth
-                <form class="reservation-form stack-form" data-reservation-form data-endpoint="{{ route('api.reservations.store') }}">
+                <form class="reservation-form stack-form" data-reservation-form data-default-duration="{{ auth()->user()->preferences['default_duration_minutes'] ?? 120 }}" data-endpoint="{{ route('api.reservations.store') }}">
                     @csrf
                     <div class="form-grid-two">
                         <label class="filter-field"><span>Room</span><select name="room_id" required><option value="">Choose a room</option>@foreach ($rooms as $room)<option value="{{ $room->id }}">{{ $room->code }} · {{ $room->name }} · Floor {{ $room->floor->number }}</option>@endforeach</select></label>
@@ -35,5 +35,16 @@
                 <div class="page-actions"><a class="primary-button" href="{{ route('login') }}">Sign in to reserve</a><a class="text-link" href="{{ route('rooms') }}">Browse rooms</a></div>
             @endauth
         </section>
+
+        @auth
+            <section class="content-panel reservation-list-panel" aria-labelledby="reservation-list-title">
+                <div class="content-panel-heading">
+                    <div><p class="eyebrow">LIVE WORKFLOW</p><h2 id="reservation-list-title">{{ $isReservationReviewer ? 'Reservation requests' : 'Your reservations' }}</h2></div>
+                    <span class="live-indicator"><i></i> Database records</span>
+                </div>
+                <p class="directory-message" data-reservation-list-message role="status" aria-live="polite">Loading reservations…</p>
+                <div class="request-list" data-reservation-list data-endpoint="{{ route('api.reservations.index') }}" data-reviewer="{{ $isReservationReviewer ? 'true' : 'false' }}" data-edit-endpoint="{{ url('/api/reservations') }}"></div>
+            </section>
+        @endauth
     </main>
 </x-layouts.app>

@@ -1,3 +1,5 @@
+import { extractBackContacts } from './scanner-contact-parser.js';
+
 const viewer = document.querySelector('#floor-plan');
 const mapStage = document.querySelector('#map-stage');
 const cveLoader = document.querySelector('[data-cve-loader]');
@@ -20,7 +22,7 @@ if (landingOrbit) {
 
 const chatbotForm = document.querySelector('[data-chatbot-form]');
 const chatbotMessages = document.querySelector('.chatbot-messages');
-chatbotForm?.addEventListener('submit', (event) => {
+chatbotForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const input = chatbotForm.elements.question;
     const question = input.value.trim();
@@ -30,13 +32,44 @@ chatbotForm?.addEventListener('submit', (event) => {
     prompt.textContent = question;
     const answer = document.createElement('p');
     answer.className = 'chatbot-message';
-    answer.textContent = /reserve|book|schedule/i.test(question)
-        ? 'Open Reservations, choose a room and time, then submit the request. The server checks conflicts before saving.'
-        : /available|room|status/i.test(question)
-            ? 'Open Room Availability or Room Directory to see current database status by floor.'
-            : 'Try asking about room availability, schedule, or how to reserve a room.';
+    answer.textContent = 'Checking live campus records…';
     chatbotMessages.append(prompt, answer);
     input.value = '';
+    const submitButton = chatbotForm.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+
+    try {
+        const response = await fetch('/api/help/ask', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+            },
+            body: JSON.stringify({ question }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || 'The help service is unavailable. Try again.');
+
+        answer.textContent = result.answer;
+        if (Array.isArray(result.links) && result.links.length) {
+            const links = document.createElement('p');
+            links.className = 'chatbot-links';
+            result.links.forEach(({ label, url }) => {
+                const link = document.createElement('a');
+                link.href = url;
+                link.textContent = label;
+                links.append(link);
+            });
+            chatbotMessages.append(links);
+        }
+    } catch (error) {
+        answer.textContent = error instanceof Error ? error.message : 'The help service is unavailable. Try again.';
+        answer.classList.add('is-error');
+    } finally {
+        submitButton.disabled = false;
+        input.focus();
+    }
 });
 
 if (viewer && mapStage && ['admin', 'creator'].includes(document.body.dataset.userRole)) {
@@ -497,6 +530,22 @@ document.addEventListener('click', (event) => {
 
 const reservationForm = document.querySelector('[data-reservation-form]');
 
+reservationForm?.elements.starts_at?.addEventListener('input', (event) => {
+    const endsAt = reservationForm.elements.ends_at;
+    if (endsAt.dataset.userEdited === 'true' || !event.currentTarget.value) return;
+
+    const durationMinutes = Number.parseInt(reservationForm.dataset.defaultDuration || '120', 10);
+    const startsAt = new Date(event.currentTarget.value);
+    if (Number.isNaN(startsAt.getTime()) || !Number.isFinite(durationMinutes)) return;
+
+    const proposedEnd = new Date(startsAt.getTime() + durationMinutes * 60_000);
+    endsAt.value = new Date(proposedEnd.getTime() - proposedEnd.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+});
+
+reservationForm?.elements.ends_at?.addEventListener('input', () => {
+    reservationForm.elements.ends_at.dataset.userEdited = 'true';
+});
+
 const organizationScanner = document.querySelector('[data-scanner]');
 
 if (organizationScanner) {
@@ -877,57 +926,6 @@ if (organizationScanner) {
         }
 
         return candidate.replace(/\s+/g, ' ').trim();
-    }
-
-    function extractBackContacts(text) {
-        const normalizedText = text.replace(/\r/g, '');
-        const phonePattern = /(?:\+63\s*9\d{9}|09\d{9})/g;
-        const normalizePhone = (value) => {
-            const compact = value
-                .replace(/[Oo]/g, '0')
-                .replace(/[Il]/g, '1')
-                .replace(/[Ss]/g, '5')
-                .replace(/[Bb]/g, '8')
-                .replace(/[^0-9+]/g, '');
-            return compact.match(/(?:\+639\d{9}|09\d{9})/)?.[0] || '';
-        };
-        const lines = normalizedText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        const emergencyLineIndex = lines.findIndex((line) => /in\s+case\s+of\s+emergency|please\s+notify/i.test(line));
-        const contactLabelIndex = lines.findIndex((line) => /(?:contact\s*(?:no\.?|number)|mobile|phone)/i.test(line)
-            && !/emergency|notify|contact\s+person/i.test(line));
-        let contact = '';
-        if (contactLabelIndex >= 0) {
-            const contactWindow = lines.slice(contactLabelIndex, contactLabelIndex + 4).join(' ');
-            contact = normalizePhone(contactWindow);
-        }
-        if (!contact) {
-            contact = normalizePhone(lines.join(' '));
-        }
-        const emergencyStart = emergencyLineIndex >= 0
-            ? normalizedText.indexOf(lines[emergencyLineIndex])
-            : -1;
-        const afterEmergency = emergencyStart >= 0 ? normalizedText.slice(emergencyStart) : '';
-        const emergencyPhone = normalizePhone(afterEmergency);
-        if (contact && emergencyPhone && contact === emergencyPhone) {
-            contact = lines
-                .map((line) => normalizePhone(line))
-                .find((candidate) => candidate && candidate !== emergencyPhone) || '';
-        }
-        const emergencyLines = afterEmergency
-            .replace(phonePattern, ' ')
-            .replace(/in\s+case\s+of\s+emergency|please\s+notify|contact\s+person|contact\s*(?:no\.?|number)/gi, ' ')
-            .split(/\r?\n/)
-            .map((line) => line.replace(/[|:]/g, ' ').replace(/\s+/g, ' ').trim())
-            .filter(Boolean);
-        const emergencyName = emergencyLines.find((line) => {
-            const words = line.replace(/[^A-Za-z ]/g, ' ').split(/\s+/).filter(Boolean);
-            return words.length >= 2 && words.join('').length >= 6 && !/validation|1st|2nd|sem/i.test(line);
-        }) || '';
-
-        return {
-            contact,
-            emergency: [emergencyName, emergencyPhone].filter(Boolean).join(' · '),
-        };
     }
 
     function previewRecognizedFields(text, side) {
@@ -1346,17 +1344,29 @@ if (organizationScanner) {
 
 if (reservationForm) {
     const message = reservationForm.querySelector('[data-reservation-message]');
+    const formHeading = reservationForm.closest('.reservation-guide')?.querySelector('#reservation-guide-title');
+    const submitButton = reservationForm.querySelector('button[type="submit"]');
+
+    function resetReservationEditor() {
+        reservationForm.reset();
+        reservationForm.dataset.reservationId = '';
+        reservationForm.dataset.method = 'POST';
+        if (formHeading) formHeading.textContent = 'From schedule to confirmation';
+        if (submitButton) submitButton.textContent = 'Submit reservation request';
+        reservationForm.querySelector('[data-reservation-cancel-edit]')?.remove();
+    }
+
     reservationForm.addEventListener('submit', async (event) => {
         event.preventDefault();
-        const submit = reservationForm.querySelector('button[type="submit"]');
-        submit.disabled = true;
+        submitButton.disabled = true;
         showCveLoader('Checking room availability…');
         message.textContent = 'Checking availability…';
         message.className = 'form-message';
 
         try {
-            const response = await fetch(reservationForm.dataset.endpoint, {
-                method: 'POST',
+            const reservationId = reservationForm.dataset.reservationId;
+            const response = await fetch(reservationId ? `${reservationForm.dataset.endpoint}/${reservationId}` : reservationForm.dataset.endpoint, {
+                method: reservationForm.dataset.method || 'POST',
                 headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': reservationForm.querySelector('input[name="_token"]').value },
                 body: JSON.stringify(Object.fromEntries(new FormData(reservationForm))),
             });
@@ -1365,17 +1375,593 @@ if (reservationForm) {
                 const errors = payload.errors ? Object.values(payload.errors).flat().join(' ') : (payload.message || 'Reservation could not be submitted.');
                 throw new Error(errors);
             }
-            reservationForm.reset();
-            message.textContent = 'Reservation request submitted successfully.';
+            resetReservationEditor();
+            message.textContent = reservationId ? 'Reservation changes saved.' : 'Reservation request submitted successfully.';
             message.classList.add('is-success');
+            document.querySelector('[data-reservation-list]')?.dispatchEvent(new CustomEvent('reservations:reload'));
         } catch (error) {
             message.textContent = error.message;
             message.classList.add('is-error');
         } finally {
-            submit.disabled = false;
+            submitButton.disabled = false;
             hideCveLoader();
         }
     });
+}
+
+const reservationList = document.querySelector('[data-reservation-list]');
+
+if (reservationList) {
+    const reservationListMessage = document.querySelector('[data-reservation-list-message]');
+    const editForm = document.querySelector('[data-reservation-form]');
+    const isReviewer = reservationList.dataset.reviewer === 'true';
+    let activeListRequest = 0;
+
+    function actionButton(label, action, reservationId, style = '') {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `text-link ${style}`.trim();
+        button.dataset.reservationAction = action;
+        button.dataset.reservationId = reservationId;
+        button.textContent = label;
+        return button;
+    }
+
+    function renderReservations(reservations, nextPage, append = false) {
+        if (!append) reservationList.replaceChildren();
+
+        reservations.forEach((reservation) => {
+            const row = document.createElement('article');
+            row.className = 'request-row reservation-request-row';
+            row.dataset.reservationId = reservation.id;
+
+            const details = document.createElement('div');
+            const title = document.createElement('strong');
+            title.textContent = `${reservation.room?.code || 'Room'} · ${reservation.purpose}`;
+            const schedule = document.createElement('span');
+            const location = [reservation.room?.floor?.building?.name, reservation.room?.floor?.name]
+                .filter(Boolean)
+                .join(' · ');
+            schedule.textContent = `${location ? `${location} · ` : ''}${new Date(reservation.starts_at).toLocaleString()} – ${new Date(reservation.ends_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+            const status = document.createElement('span');
+            status.className = `reservation-state ${reservation.status === 'pending' ? 'is-pending' : ''}`;
+            status.textContent = reservation.status[0].toUpperCase() + reservation.status.slice(1);
+            details.append(title, schedule, status);
+
+            const actions = document.createElement('div');
+            actions.className = 'reservation-actions';
+            const isUpcoming = new Date(reservation.starts_at) > new Date();
+            if (isReviewer && reservation.status === 'pending' && isUpcoming) {
+                actions.append(
+                    actionButton('Approve', 'approve', reservation.id, 'is-primary'),
+                    actionButton('Reject', 'reject', reservation.id),
+                );
+            } else if (!isReviewer && reservation.status === 'pending' && isUpcoming) {
+                actions.append(actionButton('Edit', 'edit', reservation.id));
+            }
+
+            if (['pending', 'approved'].includes(reservation.status) && isUpcoming) {
+                actions.append(actionButton('Cancel', 'cancel', reservation.id));
+            }
+
+            if (isReviewer && reservation.user) {
+                const requester = document.createElement('small');
+                requester.className = 'reservation-requester';
+                requester.textContent = `Requested by ${reservation.user.name}`;
+                details.append(requester);
+            }
+
+            row.append(details, actions);
+            reservationList.append(row);
+        });
+
+        if (reservations.length === 0 && !append) {
+            const empty = document.createElement('p');
+            empty.className = 'directory-message';
+            empty.textContent = 'No reservations found.';
+            reservationList.append(empty);
+        }
+
+        reservationList.querySelector('[data-reservation-action="load-more"]')?.remove();
+        if (nextPage) {
+            const loadMore = document.createElement('button');
+            loadMore.type = 'button';
+            loadMore.className = 'text-link';
+            loadMore.dataset.reservationAction = 'load-more';
+            loadMore.dataset.nextPage = nextPage;
+            loadMore.textContent = 'Load more reservations';
+            reservationList.append(loadMore);
+        }
+    }
+
+    async function loadReservations(url = reservationList.dataset.endpoint, append = false) {
+        const requestId = ++activeListRequest;
+        reservationListMessage.textContent = 'Loading reservations…';
+        reservationListMessage.setAttribute('aria-busy', 'true');
+
+        try {
+            const response = await fetch(url, { headers: { Accept: 'application/json' } });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.message || 'Could not load reservations.');
+            if (requestId !== activeListRequest) return;
+            renderReservations(payload.data || [], payload.next_page_url, append);
+            reservationListMessage.textContent = `${payload.total ?? (payload.data || []).length} reservation(s) found.`;
+        } catch (error) {
+            if (requestId !== activeListRequest) return;
+            reservationListMessage.textContent = error.message;
+            if (!append) reservationList.replaceChildren();
+        } finally {
+            if (requestId === activeListRequest) reservationListMessage.removeAttribute('aria-busy');
+        }
+    }
+
+    reservationList.addEventListener('reservations:reload', loadReservations);
+    reservationList.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-reservation-action]');
+        if (!button || button.disabled) return;
+
+        if (button.dataset.reservationAction === 'load-more') {
+            button.disabled = true;
+            await loadReservations(button.dataset.nextPage, true);
+            return;
+        }
+
+        const reservationId = button.dataset.reservationId;
+        const action = button.dataset.reservationAction;
+        const baseEndpoint = `${reservationList.dataset.editEndpoint}/${reservationId}`;
+
+        if (action === 'edit') {
+            const response = await fetch(baseEndpoint, { headers: { Accept: 'application/json' } });
+            const payload = await response.json();
+            if (!response.ok) {
+                reservationListMessage.textContent = payload.message || 'Could not open this reservation.';
+                return;
+            }
+            if (!editForm) return;
+            const reservation = payload.data;
+            editForm.elements.room_id.value = reservation.room_id;
+            editForm.elements.purpose.value = reservation.purpose;
+            editForm.elements.organization_name.value = reservation.organization_name || '';
+            editForm.elements.starts_at.value = new Date(new Date(reservation.starts_at).getTime() - new Date(reservation.starts_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            editForm.elements.ends_at.value = new Date(new Date(reservation.ends_at).getTime() - new Date(reservation.ends_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            editForm.elements.notes.value = reservation.notes || '';
+            editForm.dataset.reservationId = reservation.id;
+            editForm.dataset.method = 'PUT';
+            const formHeading = editForm.closest('.reservation-guide')?.querySelector('#reservation-guide-title');
+            const formSubmit = editForm.querySelector('button[type="submit"]');
+            if (formHeading) formHeading.textContent = `Edit reservation ${reservation.room?.code || ''}`;
+            if (formSubmit) formSubmit.textContent = 'Save reservation changes';
+            if (formSubmit && !editForm.querySelector('[data-reservation-cancel-edit]')) {
+                const cancelEdit = document.createElement('button');
+                cancelEdit.type = 'button';
+                cancelEdit.className = 'text-link';
+                cancelEdit.dataset.reservationCancelEdit = '';
+                cancelEdit.textContent = 'Stop editing';
+                cancelEdit.addEventListener('click', () => {
+                    editForm.reset();
+                    editForm.dataset.reservationId = '';
+                    editForm.dataset.method = 'POST';
+                    if (formHeading) formHeading.textContent = 'From schedule to confirmation';
+                    if (formSubmit) formSubmit.textContent = 'Submit reservation request';
+                    cancelEdit.remove();
+                });
+                formSubmit.before(cancelEdit);
+            }
+            editForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+
+        let endpoint = `${baseEndpoint}/cancel`;
+        let body = {};
+        if (action === 'approve' || action === 'reject') {
+            endpoint = `${baseEndpoint}/review`;
+            body.status = action === 'approve' ? 'approved' : 'rejected';
+            if (action === 'reject') {
+                body.decision_reason = window.prompt('Enter reason for rejecting this request:')?.trim();
+                if (!body.decision_reason) return;
+            }
+        } else if (action === 'cancel') {
+            if (!window.confirm('Cancel this reservation?')) return;
+            body.cancellation_reason = window.prompt('Cancellation reason (optional):')?.trim() || '';
+        }
+
+        button.disabled = true;
+        showCveLoader(action === 'approve' ? 'Approving reservation…' : action === 'reject' ? 'Rejecting reservation…' : 'Updating reservation…');
+
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: JSON.stringify(body),
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.errors ? Object.values(payload.errors).flat().join(' ') : payload.message || 'Reservation action failed.');
+            reservationListMessage.textContent = 'Reservation updated.';
+            await loadReservations();
+        } catch (error) {
+            reservationListMessage.textContent = error.message;
+            button.disabled = false;
+        } finally {
+            hideCveLoader();
+        }
+    });
+
+    loadReservations();
+}
+
+const inventoryForm = document.querySelector('[data-inventory-form]');
+const inventoryList = document.querySelector('[data-inventory-list]');
+
+if (inventoryForm && inventoryList) {
+    const inventoryFormMessage = inventoryForm.querySelector('[data-inventory-form-message]');
+    const inventoryListMessage = document.querySelector('[data-inventory-list-message]');
+    const inventorySubmit = inventoryForm.querySelector('button[type="submit"]');
+
+    function resetInventoryForm() {
+        inventoryForm.reset();
+        inventoryForm.dataset.equipmentId = '';
+        inventoryForm.dataset.method = 'POST';
+        inventorySubmit.textContent = 'Add equipment';
+        inventoryForm.querySelector('[data-inventory-cancel-edit]')?.remove();
+    }
+
+    function renderInventory(items) {
+        inventoryList.replaceChildren();
+        items.forEach((item) => {
+            const row = document.createElement('article');
+            row.className = 'request-row inventory-admin-row';
+            const details = document.createElement('div');
+            const name = document.createElement('strong');
+            name.textContent = `${item.name} · ${item.category || 'Other equipment'}`;
+            const count = document.createElement('span');
+            count.textContent = `${item.available_quantity} of ${item.quantity} available · ${item.status}`;
+            details.append(name, count);
+            const edit = document.createElement('button');
+            edit.type = 'button';
+            edit.className = 'text-link';
+            edit.dataset.inventoryEdit = item.id;
+            edit.textContent = 'Edit';
+            row.append(details, edit);
+            inventoryList.append(row);
+        });
+        if (items.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'directory-message';
+            empty.textContent = 'No equipment records are stored yet.';
+            inventoryList.append(empty);
+        }
+    }
+
+    async function loadInventory() {
+        inventoryListMessage.textContent = 'Loading inventory…';
+        inventoryListMessage.setAttribute('aria-busy', 'true');
+        try {
+            const response = await fetch(inventoryList.dataset.endpoint, { headers: { Accept: 'application/json' } });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.message || 'Could not load inventory.');
+            renderInventory(payload.data || []);
+            inventoryListMessage.textContent = `${(payload.data || []).length} inventory records loaded.`;
+        } catch (error) {
+            inventoryList.replaceChildren();
+            inventoryListMessage.textContent = error.message;
+        } finally {
+            inventoryListMessage.removeAttribute('aria-busy');
+        }
+    }
+
+    inventoryForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        inventorySubmit.disabled = true;
+        showCveLoader('Saving equipment inventory…');
+        try {
+            const equipmentId = inventoryForm.dataset.equipmentId;
+            const response = await fetch(equipmentId ? `${inventoryForm.dataset.storeEndpoint}/${equipmentId}` : inventoryForm.dataset.endpoint, {
+                method: inventoryForm.dataset.method || 'POST',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': inventoryForm.querySelector('input[name="_token"]').value,
+                },
+                body: JSON.stringify(Object.fromEntries(new FormData(inventoryForm))),
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.errors ? Object.values(payload.errors).flat().join(' ') : payload.message || 'Inventory could not be saved.');
+            resetInventoryForm();
+            inventoryFormMessage.textContent = equipmentId ? 'Equipment changes saved.' : 'Equipment added.';
+            inventoryFormMessage.className = 'form-message is-success';
+            await loadInventory();
+        } catch (error) {
+            inventoryFormMessage.textContent = error.message;
+            inventoryFormMessage.className = 'form-message is-error';
+        } finally {
+            inventorySubmit.disabled = false;
+            hideCveLoader();
+        }
+    });
+
+    inventoryList.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-inventory-edit]');
+        if (!button) return;
+        const equipmentId = button.dataset.inventoryEdit;
+
+        fetch(`${inventoryList.dataset.itemEndpoint}/${equipmentId}`, { headers: { Accept: 'application/json' } })
+            .then(async (response) => {
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.message || 'Could not open inventory item.');
+                const equipment = payload.data;
+                inventoryForm.elements.name.value = equipment.name;
+                inventoryForm.elements.category.value = equipment.category || '';
+                inventoryForm.elements.quantity.value = equipment.quantity;
+                inventoryForm.elements.status.value = equipment.status;
+                inventoryForm.elements.description.value = equipment.description || '';
+                inventoryForm.dataset.equipmentId = equipment.id;
+                inventoryForm.dataset.method = 'PUT';
+                inventorySubmit.textContent = 'Save equipment';
+                if (!inventoryForm.querySelector('[data-inventory-cancel-edit]')) {
+                    const cancelEdit = document.createElement('button');
+                    cancelEdit.type = 'button';
+                    cancelEdit.className = 'text-link';
+                    cancelEdit.dataset.inventoryCancelEdit = '';
+                    cancelEdit.textContent = 'Stop editing';
+                    cancelEdit.addEventListener('click', resetInventoryForm);
+                    inventorySubmit.before(cancelEdit);
+                }
+                inventoryForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            })
+            .catch((error) => {
+                inventoryListMessage.textContent = error.message;
+            });
+    });
+
+    loadInventory();
+}
+
+const equipmentRequestForm = document.querySelector('[data-equipment-request-form]');
+const equipmentRequestList = document.querySelector('[data-equipment-request-list]');
+
+if (equipmentRequestList) {
+    const requestListMessage = document.querySelector('[data-equipment-request-list-message]');
+    const isEquipmentReviewer = equipmentRequestList.dataset.reviewer === 'true';
+    let activeEquipmentRequestListId = 0;
+
+    function equipmentRequestAction(label, action, requestId) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'text-link';
+        button.dataset.equipmentRequestAction = action;
+        button.dataset.equipmentRequestId = requestId;
+        button.textContent = label;
+        return button;
+    }
+
+    function renderEquipmentRequests(requests, nextPage, append = false) {
+        if (!append) equipmentRequestList.replaceChildren();
+
+        requests.forEach((request) => {
+            const row = document.createElement('article');
+            row.className = 'request-row equipment-request-row';
+            const details = document.createElement('div');
+            const title = document.createElement('strong');
+            title.textContent = `${request.equipment?.name || 'Equipment'} · ${request.quantity} unit${request.quantity === 1 ? '' : 's'}`;
+            const schedule = document.createElement('span');
+            const bookingDate = request.reservation?.starts_at ? new Date(request.reservation.starts_at).toLocaleString() : 'Reservation date unavailable';
+            const roomCode = request.reservation?.room?.code || 'Room';
+            schedule.textContent = `${roomCode} · ${bookingDate}`;
+            const status = document.createElement('span');
+            status.className = `reservation-state ${request.status === 'pending' ? 'is-pending' : ''}`;
+            status.textContent = request.status[0].toUpperCase() + request.status.slice(1);
+            details.append(title, schedule, status);
+
+            const actions = document.createElement('div');
+            actions.className = 'reservation-actions';
+            const isUpcoming = request.reservation?.starts_at && new Date(request.reservation.starts_at) > new Date();
+            if (!isEquipmentReviewer && request.status === 'pending' && isUpcoming) {
+                actions.append(equipmentRequestAction('Edit', 'edit', request.id));
+            }
+            if (isEquipmentReviewer && request.status === 'pending' && isUpcoming) {
+                actions.append(
+                    equipmentRequestAction('Approve', 'approve', request.id),
+                    equipmentRequestAction('Reject', 'reject', request.id),
+                );
+            }
+            if (isEquipmentReviewer && request.status === 'approved' && isUpcoming) {
+                actions.append(equipmentRequestAction('Release', 'release', request.id));
+            }
+            if (isEquipmentReviewer && request.status === 'released') {
+                actions.append(equipmentRequestAction('Mark returned', 'return', request.id));
+            }
+            if (['pending', 'approved'].includes(request.status) && isUpcoming) {
+                actions.append(equipmentRequestAction('Cancel', 'cancel', request.id));
+            }
+            if (isEquipmentReviewer && request.requester) {
+                const requester = document.createElement('small');
+                requester.className = 'reservation-requester';
+                requester.textContent = `Requested by ${request.requester.name}`;
+                details.append(requester);
+            }
+
+            row.append(details, actions);
+            equipmentRequestList.append(row);
+        });
+
+        if (requests.length === 0 && !append) {
+            const empty = document.createElement('p');
+            empty.className = 'directory-message';
+            empty.textContent = 'No equipment requests found.';
+            equipmentRequestList.append(empty);
+        }
+
+        equipmentRequestList.querySelector('[data-equipment-request-action="load-more"]')?.remove();
+        if (nextPage) {
+            const loadMore = document.createElement('button');
+            loadMore.type = 'button';
+            loadMore.className = 'text-link';
+            loadMore.dataset.equipmentRequestAction = 'load-more';
+            loadMore.dataset.nextPage = nextPage;
+            loadMore.textContent = 'Load more requests';
+            equipmentRequestList.append(loadMore);
+        }
+    }
+
+    async function loadEquipmentRequests(url = equipmentRequestList.dataset.endpoint, append = false) {
+        const requestId = ++activeEquipmentRequestListId;
+        requestListMessage.textContent = 'Loading equipment requests…';
+        requestListMessage.setAttribute('aria-busy', 'true');
+        try {
+            const response = await fetch(url, { headers: { Accept: 'application/json' } });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.message || 'Could not load equipment requests.');
+            if (requestId !== activeEquipmentRequestListId) return;
+            renderEquipmentRequests(payload.data || [], payload.next_page_url, append);
+            requestListMessage.textContent = `${payload.total ?? (payload.data || []).length} request(s) found.`;
+        } catch (error) {
+            if (requestId !== activeEquipmentRequestListId) return;
+            requestListMessage.textContent = error.message;
+            if (!append) equipmentRequestList.replaceChildren();
+        } finally {
+            if (requestId === activeEquipmentRequestListId) requestListMessage.removeAttribute('aria-busy');
+        }
+    }
+
+    if (equipmentRequestForm) {
+        const formMessage = equipmentRequestForm.querySelector('[data-equipment-request-message]');
+        const submitButton = equipmentRequestForm.querySelector('button[type="submit"]');
+
+        function resetEquipmentRequestForm() {
+            equipmentRequestForm.reset();
+            equipmentRequestForm.dataset.requestId = '';
+            equipmentRequestForm.dataset.method = 'POST';
+            submitButton.textContent = 'Submit equipment request';
+            equipmentRequestForm.querySelector('[data-request-cancel-edit]')?.remove();
+        }
+
+        equipmentRequestForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            submitButton.disabled = true;
+            showCveLoader('Saving equipment request…');
+            try {
+                const requestId = equipmentRequestForm.dataset.requestId;
+                const response = await fetch(requestId ? `${equipmentRequestForm.dataset.itemEndpoint}/${requestId}` : equipmentRequestForm.dataset.endpoint, {
+                    method: equipmentRequestForm.dataset.method || 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': equipmentRequestForm.querySelector('input[name="_token"]').value,
+                    },
+                    body: JSON.stringify(Object.fromEntries(new FormData(equipmentRequestForm))),
+                });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.errors ? Object.values(payload.errors).flat().join(' ') : payload.message || 'Equipment request could not be saved.');
+                resetEquipmentRequestForm();
+                formMessage.textContent = requestId ? 'Equipment request updated.' : 'Equipment request submitted.';
+                formMessage.className = 'form-message is-success';
+                await loadEquipmentRequests();
+            } catch (error) {
+                formMessage.textContent = error.message;
+                formMessage.className = 'form-message is-error';
+            } finally {
+                submitButton.disabled = false;
+                hideCveLoader();
+            }
+        });
+    }
+
+    equipmentRequestList.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-equipment-request-action]');
+        if (!button || button.disabled) return;
+        if (button.dataset.equipmentRequestAction === 'load-more') {
+            button.disabled = true;
+            await loadEquipmentRequests(button.dataset.nextPage, true);
+            return;
+        }
+
+        const action = button.dataset.equipmentRequestAction;
+        const requestId = button.dataset.equipmentRequestId;
+        const endpoint = `${equipmentRequestList.dataset.itemEndpoint}/${requestId}`;
+        if (action === 'edit') {
+            if (!equipmentRequestForm) return;
+            const response = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+            const payload = await response.json();
+            if (!response.ok) {
+                requestListMessage.textContent = payload.message || 'Could not open equipment request.';
+                return;
+            }
+            const request = payload.data;
+            equipmentRequestForm.elements.equipment_id.value = request.equipment_id;
+            equipmentRequestForm.elements.reservation_id.value = request.reservation_id;
+            equipmentRequestForm.elements.quantity.value = request.quantity;
+            equipmentRequestForm.elements.notes.value = request.notes || '';
+            equipmentRequestForm.dataset.requestId = request.id;
+            equipmentRequestForm.dataset.method = 'PUT';
+            const submitButton = equipmentRequestForm.querySelector('button[type="submit"]');
+            submitButton.textContent = 'Save request changes';
+            if (!equipmentRequestForm.querySelector('[data-request-cancel-edit]')) {
+                const cancelEdit = document.createElement('button');
+                cancelEdit.type = 'button';
+                cancelEdit.className = 'text-link';
+                cancelEdit.dataset.requestCancelEdit = '';
+                cancelEdit.textContent = 'Stop editing';
+                cancelEdit.addEventListener('click', () => {
+                    equipmentRequestForm.reset();
+                    equipmentRequestForm.dataset.requestId = '';
+                    equipmentRequestForm.dataset.method = 'POST';
+                    submitButton.textContent = 'Submit equipment request';
+                    cancelEdit.remove();
+                });
+                submitButton.before(cancelEdit);
+            }
+            equipmentRequestForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+
+        let target = `${endpoint}/cancel`;
+        const body = {};
+        if (action === 'approve' || action === 'reject') {
+            target = `${endpoint}/review`;
+            body.status = action === 'approve' ? 'approved' : 'rejected';
+            if (action === 'reject') {
+                body.decision_reason = window.prompt('Enter a reason for rejecting this request:')?.trim();
+                if (!body.decision_reason) return;
+            }
+        } else if (action === 'release') {
+            target = `${endpoint}/release`;
+            if (!window.confirm('Release the approved equipment to the requester?')) return;
+        } else if (action === 'return') {
+            target = `${endpoint}/return`;
+            body.return_notes = window.prompt('Return notes (optional):')?.trim() || '';
+        } else if (action === 'cancel') {
+            if (!window.confirm('Cancel this equipment request?')) return;
+            body.cancellation_reason = window.prompt('Cancellation reason (optional):')?.trim() || '';
+        }
+
+        button.disabled = true;
+        showCveLoader(action === 'approve' ? 'Approving equipment…' : action === 'release' ? 'Releasing equipment…' : action === 'return' ? 'Recording equipment return…' : 'Updating equipment request…');
+        try {
+            const response = await fetch(target, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: JSON.stringify(body),
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.errors ? Object.values(payload.errors).flat().join(' ') : payload.message || 'Equipment request action failed.');
+            await loadEquipmentRequests();
+        } catch (error) {
+            requestListMessage.textContent = error.message;
+            button.disabled = false;
+        } finally {
+            hideCveLoader();
+        }
+    });
+
+    loadEquipmentRequests();
 }
 
 const sidebarToggle = document.querySelector('#sidebar-toggle');
@@ -1689,6 +2275,7 @@ const directoryMessage = document.querySelector('#directory-message');
 const directoryGrid = document.querySelector('#room-directory-grid');
 
 if (directoryMessage && directoryGrid) {
+    const buildingSelect = document.querySelector('#directory-building');
     const floorSelect = document.querySelector('#directory-floor');
     const statusSelect = document.querySelector('#directory-status');
     const typeSelect = document.querySelector('#directory-type');
@@ -1700,19 +2287,13 @@ if (directoryMessage && directoryGrid) {
         maintenance: 'Maintenance',
         unavailable: 'Unavailable',
     };
-    let rooms = [];
     let requestId = 0;
+    let capacityTimer;
 
-    function renderDirectory() {
-        const status = statusSelect.value;
-        const type = typeSelect?.value || 'all';
-        const minimumCapacity = Number(capacityInput?.value || 0);
-        const visibleRooms = rooms.filter((room) => (status === 'all' || room.status === status)
-            && (type === 'all' || String(room.type || '').toLowerCase() === type)
-            && Number(room.capacity) >= minimumCapacity);
+    function renderDirectory(rooms) {
         directoryGrid.replaceChildren();
 
-        visibleRooms.forEach((room) => {
+        rooms.forEach((room) => {
             const card = document.createElement('article');
             card.className = 'room-directory-card';
 
@@ -1738,8 +2319,8 @@ if (directoryMessage && directoryGrid) {
             const facts = document.createElement('dl');
             facts.className = 'directory-facts';
             [
-                ['Building', 'NPC Main Building'],
-                ['Floor', `${floorSelect.value}${floorSelect.value === '1' ? 'st' : floorSelect.value === '2' ? 'nd' : 'rd'} Floor`],
+                ['Building', room.building],
+                ['Floor', room.floor],
                 ['Capacity', `${room.capacity} seats`],
                 ['Room type', room.type || 'General room'],
                 ['Equipment', room.equipment],
@@ -1760,7 +2341,7 @@ if (directoryMessage && directoryGrid) {
             floorPlanLink.className = 'text-link';
             floorPlanLink.textContent = 'View in 3D';
             const floorPlanUrl = new URL(directoryGrid.dataset.floorPlanUrl, window.location.origin);
-            floorPlanUrl.searchParams.set('floor', floorSelect.value);
+            floorPlanUrl.searchParams.set('floor', room.floor_number);
             floorPlanLink.href = floorPlanUrl.toString();
 
             const reservationLink = document.createElement('a');
@@ -1778,12 +2359,12 @@ if (directoryMessage && directoryGrid) {
             directoryGrid.append(card);
         });
 
-        directoryMessage.textContent = visibleRooms.length
-            ? `${visibleRooms.length} room${visibleRooms.length === 1 ? '' : 's'} shown for this floor.`
-            : 'No rooms match this status on the selected floor.';
+        directoryMessage.textContent = rooms.length
+            ? `${rooms.length} room${rooms.length === 1 ? '' : 's'} match the selected filters.`
+            : 'No rooms match the selected filters.';
     }
 
-    async function loadDirectory(floor) {
+    async function loadDirectory() {
         const activeRequestId = ++requestId;
         directoryMessage.textContent = 'Loading room inventory…';
         directoryGrid.setAttribute('aria-busy', 'true');
@@ -1791,7 +2372,20 @@ if (directoryMessage && directoryGrid) {
 
         try {
             const url = new URL(directoryMessage.dataset.endpoint, window.location.origin);
-            url.searchParams.set('floor', floor);
+            const filters = {
+                building_id: buildingSelect?.value,
+                floor_id: floorSelect?.value,
+                type: typeSelect?.value,
+                capacity: capacityInput?.value,
+                status: statusSelect?.value,
+            };
+
+            Object.entries(filters).forEach(([key, value]) => {
+                if (value && value !== 'all') {
+                    url.searchParams.set(key, value);
+                }
+            });
+
             const response = await fetch(url, { headers: { Accept: 'application/json' } });
 
             if (!response.ok) {
@@ -1803,16 +2397,14 @@ if (directoryMessage && directoryGrid) {
                 return;
             }
 
-            rooms = payload.data;
-            renderDirectory();
+            renderDirectory(payload.data);
         } catch (error) {
             if (activeRequestId !== requestId) {
                 return;
             }
 
-            rooms = [];
             directoryGrid.replaceChildren();
-            directoryMessage.textContent = 'Room inventory could not be loaded. Check the connection and try another floor.';
+            directoryMessage.textContent = 'Room inventory could not be loaded. Check the connection and try again.';
             console.error(error);
         } finally {
             if (activeRequestId === requestId) {
@@ -1822,9 +2414,17 @@ if (directoryMessage && directoryGrid) {
         }
     }
 
-    floorSelect.addEventListener('change', () => loadDirectory(floorSelect.value));
-    statusSelect.addEventListener('change', renderDirectory);
-    typeSelect?.addEventListener('change', renderDirectory);
-    capacityInput?.addEventListener('input', renderDirectory);
-    loadDirectory(floorSelect.value);
+    buildingSelect?.addEventListener('change', () => {
+        if (floorSelect) {
+            floorSelect.value = '';
+        }
+
+        loadDirectory();
+    });
+    [floorSelect, statusSelect, typeSelect].forEach((select) => select?.addEventListener('change', loadDirectory));
+    capacityInput?.addEventListener('input', () => {
+        window.clearTimeout(capacityTimer);
+        capacityTimer = window.setTimeout(loadDirectory, 250);
+    });
+    loadDirectory();
 }

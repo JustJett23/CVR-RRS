@@ -8,14 +8,14 @@
                 <span class="live-indicator"><i></i> Live database</span>
             </div>
             <div class="filter-row">
-                <label class="filter-field"><span>Building</span><select aria-label="Building"><option>NPC Main Building</option></select></label>
-                <label class="filter-field"><span>Floor</span><select id="directory-floor"><option value="1">1st Floor</option><option value="2">2nd Floor</option><option value="3">3rd Floor</option></select></label>
-                <label class="filter-field"><span>Room type</span><select id="directory-type"><option value="all">All room types</option><option value="classroom">Classroom</option><option value="laboratory">Laboratory</option><option value="office">Office</option></select></label>
-                <label class="filter-field"><span>Minimum capacity</span><input id="directory-capacity" type="number" min="1" placeholder="Any capacity"></label>
+                <label class="filter-field"><span>Building</span><select id="directory-building" aria-label="Building"><option value="">All buildings</option>@foreach ($buildings as $building)<option value="{{ $building->id }}">{{ $building->name }}</option>@endforeach</select></label>
+                <label class="filter-field"><span>Floor</span><select id="directory-floor"><option value="">All floors</option>@foreach ($floors as $floor)<option value="{{ $floor->id }}">{{ $floor->building->name }} · {{ $floor->name }}</option>@endforeach</select></label>
+                <label class="filter-field"><span>Room type</span><select id="directory-type"><option value="">All room types</option>@foreach ($types as $type)<option value="{{ $type }}">{{ ucfirst($type) }}</option>@endforeach</select></label>
+                <label class="filter-field"><span>Minimum capacity</span><input id="directory-capacity" type="number" min="0" max="100000" placeholder="Any capacity"></label>
                 <label class="filter-field"><span>Room status</span><select id="directory-status"><option value="all">All statuses</option><option value="available">Available</option><option value="occupied">Occupied</option><option value="reserved">Reserved</option><option value="maintenance">Maintenance</option><option value="unavailable">Unavailable</option></select></label>
-                <span class="filter-note">Room records and availability are loaded from the database.</span>
+                <span class="filter-note">Building, floor, type, capacity, and live status filters use database inventory.</span>
             </div>
-            <p class="directory-message" id="directory-message" role="status" aria-live="polite" data-endpoint="{{ route('dashboard.rooms') }}">Loading room inventory…</p>
+            <p class="directory-message" id="directory-message" role="status" aria-live="polite" data-endpoint="{{ route('api.rooms.index') }}">Loading room inventory…</p>
             <div class="room-directory-grid" id="room-directory-grid" aria-live="polite" data-floor-plan-url="{{ route('floor-plan') }}" data-reservations-url="{{ route('reservations') }}" data-schedule-url="{{ route('schedule') }}"></div>
             <p class="map-data-note">Room names, capacities, equipment, and statuses are read from the campus database.</p>
         </section>

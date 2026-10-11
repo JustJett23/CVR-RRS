@@ -28,7 +28,7 @@
     "src": "_instrument-sans-600-normal-B9e8oLYv.woff"
   },
   "node_modules/tesseract.js/src/index.js": {
-    "file": "assets/src-DfCNjPIi.js",
+    "file": "assets/src-B0f0ufeO.js",
     "name": "src",
     "src": "node_modules/tesseract.js/src/index.js",
     "isDynamicEntry": true,
@@ -88,7 +88,7 @@
     ]
   },
   "resources/css/app.css": {
-    "file": "assets/app-B_FsbdIa.css",
+    "file": "assets/app-COGDKO1P.css",
     "name": "app",
     "names": [
       "app.css"
@@ -97,7 +97,7 @@
     "isEntry": true
   },
   "resources/js/app.js": {
-    "file": "assets/app-DCXUBDe5.js",
+    "file": "assets/app-fGzRFFm-.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true,

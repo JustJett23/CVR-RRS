@@ -834,6 +834,13 @@ button:focus-visible, a:focus-visible, select:focus-visible, #floor-plan:focus-v
 .resource-tile p, .report-tile p, .settings-card p { margin: 0; color: var(--color-text-muted); font-size: 9px; line-height: 1.5; }
 .resource-count { margin-left: auto; color: var(--color-text-muted); font-size: 16px; font-weight: 650; }
 .report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.report-detail { display: grid; gap: 0; padding: 16px; }
+.report-detail h2 { margin: 0 0 10px; font-size: 13px; }
+.report-detail p { display: flex; justify-content: space-between; gap: 12px; margin: 0; padding: 9px 0; border-top: 1px solid var(--color-border); font-size: 10px; }
+.report-detail p span { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.settings-preferences { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--color-border); border-radius: 8px; }
+.settings-preferences legend { padding: 0 5px; font-size: 11px; font-weight: 650; }
+.settings-preferences label { display: flex; align-items: center; gap: 8px; font-size: 11px; }
 .report-tile { align-items: center; }
 .report-index { display: grid; flex: 0 0 30px; width: 30px; height: 30px; place-items: center; border-radius: 8px; background: var(--color-info-soft); color: var(--color-secondary); font-size: 9px; font-weight: 700; }
 .report-status { margin-left: auto; color: var(--color-text-muted); font-size: 9px; white-space: nowrap; }
@@ -864,6 +871,16 @@ button:focus-visible, a:focus-visible, select:focus-visible, #floor-plan:focus-v
 .request-list { display: grid; gap: 8px; }
 .request-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 10px; }
 .request-row span { color: var(--color-text-muted); }
+.reservation-request-row > div:first-child { display: grid; gap: 6px; }
+.reservation-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.reservation-actions button { border: 0; background: transparent; color: var(--color-secondary); cursor: pointer; font: inherit; font-weight: 650; }
+.reservation-actions button.is-primary { color: var(--color-success, #2b7658); }
+.reservation-actions button:disabled { opacity: .55; cursor: wait; }
+.reservation-requester { font-size: 9px; }
+.equipment-request-row > div:first-child { display: grid; gap: 6px; }
+.inventory-admin-row > div:first-child { display: grid; gap: 6px; }
+.inventory-admin-row button { align-self: center; }
+.equipment-request-form { margin-top: 18px; padding: 16px; border: 1px solid var(--color-border); border-radius: 8px; background: color-mix(in srgb, var(--color-background) 45%, var(--color-surface)); }
 .support-disabled { display: block; margin-top: 9px; padding: 10px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-neutral-soft); color: var(--color-text-muted); font-size: 9px; }
 
 @media (max-width: 900px) {
@@ -885,6 +902,8 @@ button:focus-visible, a:focus-visible, select:focus-visible, #floor-plan:focus-v
     .timeline-hours { font-size: 8px; }
     .resource-grid, .settings-grid { grid-template-columns: 1fr; }
     .resource-tile, .report-tile { padding: 13px; }
+    .reservation-request-row { align-items: flex-start; flex-direction: column; }
+    .reservation-actions { justify-content: flex-start; }
     .status-lifecycle { gap: 6px; }
     .lifecycle-arrow { display: none; }
     .support-card { padding: 16px; }
