@@ -6,24 +6,18 @@ use Pdo\Mysql;
 $postgresUrl = env('CVR_DATABASE_URL', env('DB_URL', env('DATABASE_URL')));
 $postgresUrlParts = is_string($postgresUrl) ? parse_url($postgresUrl) : false;
 $postgresHost = is_array($postgresUrlParts) ? ($postgresUrlParts['host'] ?? null) : null;
-$postgresQuery = [];
-
-if (is_array($postgresUrlParts)) {
-    parse_str($postgresUrlParts['query'] ?? '', $postgresQuery);
-}
+$postgresNeonEndpoint = null;
 
 if (
     is_string($postgresUrl)
     && is_string($postgresHost)
     && str_ends_with(strtolower($postgresHost), '.neon.tech')
-    && ! array_key_exists('options', $postgresQuery)
 ) {
     $postgresEndpoint = explode('.', $postgresHost, 2)[0];
     $postgresEndpoint = preg_replace('/-pooler$/i', '', $postgresEndpoint);
 
     if (is_string($postgresEndpoint) && preg_match('/^ep-[a-z0-9-]+$/i', $postgresEndpoint) === 1) {
-        $postgresUrl .= (str_contains($postgresUrl, '?') ? '&' : '?')
-            .http_build_query(['options' => 'endpoint='.$postgresEndpoint], '', '&', PHP_QUERY_RFC3986);
+        $postgresNeonEndpoint = $postgresEndpoint;
     }
 }
 
@@ -111,6 +105,7 @@ return [
         'pgsql' => [
             'driver' => 'pgsql',
             'url' => $postgresUrl,
+            'neon_endpoint' => $postgresNeonEndpoint,
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '5432'),
             'database' => env('DB_DATABASE', 'laravel'),
