@@ -106,7 +106,9 @@ class AuthController extends Controller
                 return $user;
             }, 3);
         } catch (QueryException $exception) {
-            if ((string) $exception->getCode() === '23000') {
+            $sqlState = (string) ($exception->errorInfo[0] ?? $exception->getCode());
+
+            if (in_array($sqlState, ['23000', '23505'], true)) {
                 return response()->json(['message' => 'An account already exists for this student number or institutional email.'], 409);
             }
 
