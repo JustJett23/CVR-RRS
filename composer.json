@@ -41,6 +41,9 @@
             "npm install --ignore-scripts",
             "npm run build"
         ],
+        "vercel": [
+            "@php -r 'if (getenv(\"DB_CONNECTION\") === \"pgsql\" || getenv(\"CVR_DATABASE_URL\") || str_starts_with((string) (getenv(\"DB_URL\") ?: getenv(\"DATABASE_URL\")), \"postgres\")) { passthru(PHP_BINARY . \" artisan migrate --force\", $status); exit($status); }'"
+        ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
             "@php artisan dev"
