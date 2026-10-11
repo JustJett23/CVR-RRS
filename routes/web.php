@@ -3,19 +3,30 @@
 use App\Http\Controllers\Api\ReservationController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
-use App\Models\Room;
 use App\Models\Equipment;
 use App\Models\EquipmentRequest;
+use App\Models\Room;
 use App\Models\UserNotification;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Response;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Illuminate\View\View;
 
 Route::get('/', function (): RedirectResponse {
     return redirect()->route(Auth::check() ? 'dashboard' : 'landing');
 })->name('home');
-Route::view('/landing', 'landing')->name('landing');
+Route::get('/landing', function (): Response {
+    return response()
+        ->view('landing')
+        ->header('Cache-Control', 'public, max-age=300, must-revalidate')
+        ->header('Vercel-CDN-Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400');
+})->withoutMiddleware([
+    StartSession::class,
+    ShareErrorsFromSession::class,
+])->name('landing');
 Route::get('/login', [AuthController::class, 'create'])->name('login');
 Route::post('/login', [AuthController::class, 'store'])->middleware('throttle:login')->name('login.store');
 Route::post('/login/verify-id', [AuthController::class, 'verifyId'])->middleware('throttle:id-verification')->name('login.verify-id');

@@ -26,7 +26,14 @@
                 <div class="orbit-track orbit-track-rooms"><span class="orbit-node">ROOMS</span></div>
                 <div class="orbit-track orbit-track-people"><span class="orbit-node">PEOPLE</span></div>
                 <div class="orbit-track orbit-track-time"><span class="orbit-node">TIME</span></div>
-                <div class="orbit-core"><img src="{{ asset('assets/npc/npc-seal.png') }}" alt="" width="37" height="37"><strong>NPC</strong><small>VENUE MAP</small></div>
+                <div class="orbit-core">
+                    <picture>
+                        <source type="image/webp" srcset="{{ asset('assets/npc/npc-seal-74.webp') }} 2x, {{ asset('assets/npc/npc-seal-111.webp') }} 3x">
+                        <img src="{{ asset('assets/npc/npc-seal.png') }}" alt="" width="37" height="37" decoding="async">
+                    </picture>
+                    <strong>NPC</strong>
+                    <small>VENUE MAP</small>
+                </div>
             </div>
         </section>
         <section class="landing-strip" aria-label="Campus Venue Engine features">
