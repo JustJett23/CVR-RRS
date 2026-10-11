@@ -544,6 +544,7 @@ if (organizationScanner) {
     let mediaStream = null;
     let barcodeDetector = null;
     let ocrWorkerPromise = null;
+    let isOcrProcessing = false;
     let qualityTimer = null;
     let stableReadableFrames = 0;
     let autoCapturePending = false;
@@ -748,6 +749,14 @@ if (organizationScanner) {
                 langPath: '/ocr/lang',
                 corePath: '/ocr/tesseract-core-lstm.wasm.js',
                 workerBlobURL: false,
+                logger: ({ status: workerStatus, progress }) => {
+                    if (!isOcrProcessing || !status) return;
+
+                    const percentage = Number.isFinite(progress) ? ` ${Math.round(progress * 100)}%` : '';
+                    status.textContent = workerStatus === 'recognizing text'
+                        ? `Reading ID text${percentage}…`
+                        : 'Preparing the text reader…';
+                },
             }));
         }
 
@@ -921,6 +930,36 @@ if (organizationScanner) {
         };
     }
 
+    function previewRecognizedFields(text, side) {
+        const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const nameCandidates = lines.flatMap((line, index) => [line, `${line} ${lines[index + 1] || ''}`]);
+        const extractedName = nameCandidates.map(normalizeOcrName).find(isLikelyPersonalName) || '';
+        const course = normalizeCourse(
+            readField(lines, /^(?:course|program)\s*[:.-]?\s*/i)
+                || lines.find((line) => /associate|bachelor|computer|information\s+system/i.test(line) && line.length < 100),
+            lines,
+        );
+        const studentNumber = extractStudentNumber(text);
+        const contacts = side === 'back' ? extractBackContacts(text) : { contact: '', emergency: '' };
+        const validation = /validation|1st\s*sem|2nd\s*sem|signature/i.test(text);
+
+        if (side === 'front') {
+            if (extractedName && nameInput) nameInput.value = formatDisplayName(extractedName);
+            if (course && courseInput) courseInput.value = course;
+            if (isValidStudentNumber(studentNumber) && studentNumberInput) studentNumberInput.value = studentNumber;
+        } else {
+            if (contacts.contact && contactInput) contactInput.value = contacts.contact;
+            if (contacts.emergency && emergencyInput) emergencyInput.value = contacts.emergency;
+        }
+
+        results.hidden = false;
+        resultsNote.textContent = 'Live preview · checking the extracted details against the ID…';
+
+        return side === 'front'
+            ? { complete: Boolean(extractedName && course && isValidStudentNumber(studentNumber)), name: Boolean(extractedName), studentNumber: isValidStudentNumber(studentNumber) }
+            : { complete: Boolean(contacts.contact && contacts.emergency && validation), contact: Boolean(contacts.contact), emergency: Boolean(contacts.emergency), validation };
+    }
+
     async function processIdImage(source) {
         const scannedSide = scanSide;
         if (scannedSide === 'front') {
@@ -931,59 +970,78 @@ if (organizationScanner) {
         if (status) status.textContent = 'Reading the ID… this may take a few seconds.';
         showCveLoader(scannedSide === 'front' ? 'Reading the front of your ID…' : 'Reading the back of your ID…');
         await yieldToBrowser();
+        isOcrProcessing = true;
 
         try {
-            const worker = await withTimeout(getOcrWorker(), 20000, 'The OCR engine took too long to start.');
-            const preparedImage = await prepareOcrImage(source);
+            const [worker, preparedImage] = await Promise.all([
+                withTimeout(getOcrWorker(), 20000, 'The OCR engine took too long to start.'),
+                prepareOcrImage(source),
+            ]);
+            let passCount = 0;
             const recognize = async (image) => {
+                passCount += 1;
+                if (status) status.textContent = `Reading ID text · scan ${passCount}…`;
                 await yieldToBrowser();
                 return withTimeout(worker.recognize(image), 30000, 'The OCR engine took too long to read this image.');
             };
             const firstPass = await recognize(preparedImage);
             let text = firstPass.data.text || '';
-            if (scanSide === 'front') {
-                await worker.setParameters({ tessedit_pageseg_mode: '6', tessedit_char_whitelist: '' });
-                const rawPass = await recognize(source);
-                text = `${text}\n${rawPass.data.text || ''}`;
-            }
-            await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1' });
-            const focusedRegion = scanSide === 'front'
-                ? cropOcrRegion(preparedImage, 0.48, 0.32)
-                : cropOcrRegion(preparedImage, 0.02, 0.58);
-            const focusedPass = await recognize(focusedRegion);
-            text = `${text}\n${focusedPass.data.text || ''}`;
+            let preview = previewRecognizedFields(text, scannedSide);
+            hideCveLoader();
+            if (status) status.textContent = 'Live text preview ready · checking details…';
             let focusedNameText = '';
             let focusedNumberText = '';
-            if (scanSide === 'back') {
-                await worker.setParameters({ tessedit_char_whitelist: '0123456789+()- ' });
-                for (const [top, height, pageMode] of [[0, 0.16, '6'], [0.03, 0.2, '7'], [0, 0.3, '11']]) {
-                    await worker.setParameters({ tessedit_pageseg_mode: pageMode });
-                    const contactPass = await recognize(cropOcrRegion(preparedImage, top, height));
+            if (scannedSide === 'front') {
+                if (!preview.complete) {
+                    await worker.setParameters({ tessedit_pageseg_mode: '6', tessedit_char_whitelist: '' });
+                    const rawPass = await recognize(source);
+                    text = `${text}\n${rawPass.data.text || ''}`;
+                    preview = previewRecognizedFields(text, scannedSide);
+                }
+
+                if (!preview.complete) {
+                    await worker.setParameters({ tessedit_pageseg_mode: '6', tessedit_char_whitelist: '', preserve_interword_spaces: '1' });
+                    const focusedPass = await recognize(cropOcrRegion(preparedImage, 0.48, 0.42));
+                    text = `${text}\n${focusedPass.data.text || ''}`;
+                    preview = previewRecognizedFields(text, scannedSide);
+                }
+
+                if (!preview.name) {
+                    await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ .-'" });
+                    const namePass = await recognize(cropOcrRegion(preparedImage, 0.52, 0.15));
+                    focusedNameText = namePass.data.text || '';
+                    text = `${text}\n${focusedNameText}`;
+                    preview = previewRecognizedFields(text, scannedSide);
+                }
+
+                if (!preview.studentNumber) {
+                    await worker.setParameters({ tessedit_char_whitelist: '0123456789-', tessedit_pageseg_mode: '6' });
+                    const numberPass = await recognize(cropOcrRegion(preparedImage, 0.58, 0.18));
+                    focusedNumberText = numberPass.data.text || '';
+                    text = `${text}\n${focusedNumberText}`;
+                    preview = previewRecognizedFields(text, scannedSide);
+                }
+            } else if (!preview.complete) {
+                await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1', tessedit_char_whitelist: '' });
+                const focusedPass = await recognize(cropOcrRegion(preparedImage, 0.02, 0.58));
+                text = `${text}\n${focusedPass.data.text || ''}`;
+                preview = previewRecognizedFields(text, scannedSide);
+
+                if (!preview.complete) {
+                    await worker.setParameters({ tessedit_char_whitelist: '0123456789+()- ', tessedit_pageseg_mode: '11' });
+                    const contactPass = await recognize(cropOcrRegion(preparedImage, 0, 0.3));
                     text = `${text}\n${contactPass.data.text || ''}`;
+                    preview = previewRecognizedFields(text, scannedSide);
                 }
-            }
-            if (scanSide === 'front') {
-                const focusedNumberTexts = [];
-                await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ .-'" });
-                const namePass = await recognize(cropOcrRegion(preparedImage, 0.52, 0.15));
-                text = `${text}\n${namePass.data.text || ''}`;
-                for (const [top, height, mode] of [[0.62, 0.12, '7'], [0.66, 0.08, '7'], [0.58, 0.18, '6']]) {
-                    await worker.setParameters({ tessedit_char_whitelist: '0123456789-', tessedit_pageseg_mode: mode });
-                    const numberPass = await recognize(cropOcrRegion(preparedImage, top, height));
-                    focusedNumberTexts.push(numberPass.data.text || '');
-                    text = `${text}\n${numberPass.data.text || ''}`;
+
+                if (!preview.complete) {
+                    await worker.setParameters({ tessedit_pageseg_mode: '3', tessedit_char_whitelist: '' });
+                    const fallbackPass = await recognize(source);
+                    text = `${text}\n${fallbackPass.data.text || ''}`;
+                    preview = previewRecognizedFields(text, scannedSide);
                 }
-                focusedNameText = namePass.data.text || '';
-                focusedNumberText = focusedNumberTexts.join('\n');
             }
             await worker.setParameters({ tessedit_pageseg_mode: '3', tessedit_char_whitelist: '' });
-            const firstPassHasUsefulField = scanSide === 'front'
-                ? /(?:stud\.?\s*no|student\s*(?:no|number))|\d{5,10}|associate|bachelor|information\s+system/i.test(text)
-                : /(?:\+63\s*9|09\d{9})|contact|emergency|validation|sem/i.test(text);
-            if (!firstPassHasUsefulField) {
-                const fallbackPass = await recognize(source);
-                text = `${text}\n${fallbackPass.data.text || ''}`;
-            }
             const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
             const labeledStudentTexts = [...text.matchAll(/(?:stud\.?\s*no\.?|student\s*(?:no\.?|number))[^\r\n]{0,40}/gi)]
                 .map((match) => match[0]);
@@ -1080,6 +1138,7 @@ if (organizationScanner) {
             }
             console.error(error);
         } finally {
+            isOcrProcessing = false;
             autoCapturePending = false;
             hideCveLoader();
         }
@@ -1135,6 +1194,7 @@ if (organizationScanner) {
 
         try {
             showCveLoader(scanSide === 'front' ? 'Starting the front scanner…' : 'Starting the back scanner…');
+            warmOcrWorker();
             mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
             if (video) {
                 video.srcObject = mediaStream;
@@ -1159,6 +1219,12 @@ if (organizationScanner) {
             hideCveLoader();
             if (status) status.textContent = 'Camera access was not granted. Enter the organization ID below.';
         }
+    }
+
+    function warmOcrWorker() {
+        void getOcrWorker().catch(() => {
+            ocrWorkerPromise = null;
+        });
     }
 
     startButton?.addEventListener('click', () => {
@@ -1186,6 +1252,8 @@ if (organizationScanner) {
         }
         uploadInput.value = '';
     });
+
+    uploadLabel?.addEventListener('click', warmOcrWorker);
 
     nextButton?.addEventListener('click', () => {
         if (!nameInput?.value.trim() || !courseInput?.value.trim() || !studentNumberInput?.value.trim()) {
