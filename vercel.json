@@ -2,7 +2,7 @@
   "version": 2,
   "framework": null,
   "regions": ["sin1"],
-  "buildCommand": "composer --no-interaction run vercel && npm run build",
+  "buildCommand": "npm run build",
   "outputDirectory": "public",
   "functions": {
     "api/index.php": {
