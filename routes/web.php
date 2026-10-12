@@ -24,10 +24,10 @@ use Illuminate\View\View;
 Route::post('/rooms', [RoomManagementController::class, 'store'])
     ->name('rooms.store');
 
-// Route::get('/', function (): RedirectResponse|Response {
-//     if (Auth::check()) {
-//         return redirect()->route('dashboard');
-//     }
+Route::get('/dashboard', function (): RedirectResponse|Response {
+    if (test) {
+        return redirect()->route('dashboard');
+    }
 
     return response()->view('landing');
 })->name('home');
