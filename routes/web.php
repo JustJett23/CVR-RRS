@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\RoomManagementController;
 use App\Http\Controllers\Api\EquipmentInventoryController;
 use App\Http\Controllers\Api\EquipmentRequestController;
 use App\Http\Controllers\Api\HelpAssistantController;
@@ -19,6 +20,9 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\View\View;
+
+Route::post('/rooms', [RoomManagementController::class, 'store'])
+    ->name('rooms.store');
 
 Route::get('/', function (): RedirectResponse|Response {
     if (Auth::check()) {
