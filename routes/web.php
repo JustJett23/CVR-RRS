@@ -24,7 +24,7 @@ use Illuminate\View\View;
 Route::post('/rooms', [RoomManagementController::class, 'store'])
     ->name('rooms.store');
 
-Route::get('/dashboard', function (): RedirectResponse|Response {
+Route::get('/', function (): RedirectResponse|Response {
     if (test) {
         return redirect()->route('dashboard');
     }
