@@ -1,4 +1,3 @@
-<!-- 
 <?php
 
 namespace App\Http\Controllers;
@@ -47,4 +46,4 @@ class RoomManagementController extends Controller
             ->route('rooms')
             ->with('room_created', 'Room added successfully.');
     }
-} -->
+}
