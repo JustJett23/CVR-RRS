@@ -23,7 +23,7 @@
 </x-layouts.app>
 
 
-@if (in_array(auth()->user()->role, ['admin', 'creator'], true))
+
 <section class="content-panel">
     <div class="content-panel-heading">
         <div>
