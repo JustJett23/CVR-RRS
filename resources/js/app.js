@@ -963,7 +963,7 @@ if (organizationScanner) {
 
     function isLikelyPersonalName(value) {
         const normalized = String(value || '').replace(/\s+/g, ' ').trim().toUpperCase();
-        const blockedTerms = /(?:\bFULL\s+NAME\b|\bNAME\b|\bSURNAME\b|\bGIVEN\s+NAME\b|INTEGRATED|COMPUTER|SOCIETY|ORGANIZATION|NAVOTAS|POLYTECHNIC|COLLEGE|NPC|STUD(?:ENT)?|CONTACT|VALIDATION|SIGNATURE|ASSOCIATE|BACHELOR|COURSE|PROGRAM|SYSTEM|INFORMATION|CITY|KAUNLARAN|ADDRESS|STREET|PHILIPPINES|MANILA)/;
+        const blockedTerms = /(?:\bFULL\s+NAME\b|\bNAME\b|\bSURNAME\b|\bGIVEN\s+NAME\b|\bOV\b|INTEGRATED|COMPUTER|SOCIETY|ORGANIZATION|NAVOTAS|POLYTECHNIC|COLLEGE|NPC|STUD(?:ENT)?|CONTACT|VALIDATION|SIGNATURE|ASSOCIATE|BACHELOR|COURSE|PROGRAM|SYSTEM|INFORMATION|CITY|KAUNLARAN|ADDRESS|STREET|PHILIPPINES|MANILA)/;
         const words = normalized.replace(/[^A-Z .'-]/g, ' ').split(/\s+/).filter(Boolean);
         const fullNameWords = words.filter((word) => word.replace(/\./g, '').length >= 3);
 
@@ -973,6 +973,47 @@ if (organizationScanner) {
             && fullNameWords.length >= 2
             && words.join('').length >= 6
             && !blockedTerms.test(normalized);
+    }
+
+    function extractLikelyPersonalName(lines) {
+        const candidates = new Map();
+        const addCandidate = (value, isWholeLine = false) => {
+            const normalized = normalizeOcrName(value);
+            if (!isLikelyPersonalName(normalized)) return;
+            const candidate = candidates.get(normalized) || { value: normalized, occurrences: 0, wholeLine: false };
+            candidate.occurrences += 1;
+            candidate.wholeLine = candidate.wholeLine || isWholeLine;
+            candidates.set(normalized, candidate);
+        };
+
+        lines.forEach((line) => {
+            const normalizedLine = normalizeOcrName(line);
+            const words = normalizedLine.split(/\s+/).filter(Boolean);
+            addCandidate(normalizedLine, true);
+
+            for (let start = 0; start < words.length; start += 1) {
+                for (let length = 2; length <= Math.min(5, words.length - start); length += 1) {
+                    addCandidate(words.slice(start, start + length).join(' '));
+                }
+            }
+        });
+
+        const rankedCandidates = [...candidates.values()].map((candidate) => {
+            const words = candidate.value.split(/\s+/);
+            const hasMiddleInitial = words.slice(1, -1).some((word) => /^[A-Z]\.?$/i.test(word));
+            const nameLengthScore = words.length === 4 ? 40 : words.length === 3 ? 32 : words.length === 2 ? 24 : 0;
+            const score = nameLengthScore
+                + (hasMiddleInitial ? 14 : 0)
+                + (candidate.wholeLine ? 4 : 0)
+                + Math.min(candidate.occurrences - 1, 3) * 3;
+
+            return { ...candidate, score };
+        });
+
+        const preferredCandidates = rankedCandidates.filter((candidate) => candidate.score > 0);
+        const candidatesToRank = preferredCandidates.length > 0 ? preferredCandidates : rankedCandidates;
+
+        return candidatesToRank.sort((first, second) => second.score - first.score)[0]?.value || '';
     }
 
     function normalizeCourse(value, lines) {
@@ -986,8 +1027,7 @@ if (organizationScanner) {
 
     function previewRecognizedFields(text, side) {
         const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        const nameCandidates = lines.flatMap((line, index) => [line, `${line} ${lines[index + 1] || ''}`]);
-        const extractedName = nameCandidates.map(normalizeOcrName).find(isLikelyPersonalName) || '';
+        const extractedName = extractLikelyPersonalName(lines);
         const course = normalizeCourse(
             readField(lines, /^(?:course|program)\s*[:.-]?\s*/i)
                 || lines.find((line) => /associate|bachelor|computer|information\s+system/i.test(line) && line.length < 100),
@@ -1117,11 +1157,7 @@ if (organizationScanner) {
                 lines,
             );
             const focusedNameLines = focusedNameText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-            const nameCandidates = [
-                ...focusedNameLines,
-                ...lines.flatMap((line, index) => [line, `${line} ${lines[index + 1] || ''}`]),
-            ];
-            const extractedName = nameCandidates.map(normalizeOcrName).find((line) => isLikelyPersonalName(line)) || '';
+            const extractedName = extractLikelyPersonalName([...focusedNameLines, ...lines]);
             const emergency = backContacts.emergency || lines.find((line) => /emergency|notify|contact\s+person/i.test(line)) || '';
             const validationFound = /validation|1st\s*sem|2nd\s*sem|signature/i.test(text);
 
@@ -2476,3 +2512,4 @@ if (directoryMessage && directoryGrid) {
     });
     loadDirectory();
 }
+
