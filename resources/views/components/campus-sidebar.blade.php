@@ -1,8 +1,9 @@
 @props(['active' => 'dashboard'])
+@php($isStaff = in_array(auth()->user()?->role, ['admin', 'creator'], true))
 
 <aside class="sidebar" id="sidebar" aria-label="Main navigation">
     <a class="brand" href="{{ route('dashboard') }}" aria-label="Campus Venue Engine dashboard">
-        <img class="brand-mark" src="{{ asset('images/campus-venue-engine-logo.svg') }}" alt="">
+        <img class="brand-mark" src="{{ asset('images/campus-venue-engine-logo.svg') }}" alt="" width="46" height="46">
         <span class="brand-copy">
             <span class="brand-name">Campus Venue Engine</span>
             <span class="brand-school">Navotas Polytechnic College</span>
@@ -30,11 +31,13 @@
             <a class="nav-link {{ $active === 'equipment-requests' ? 'is-current' : '' }}" href="{{ route('equipment-requests') }}" title="Equipment Requests" @if ($active === 'equipment-requests') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="list-checks" /></span><span class="nav-label">Equipment Requests</span></a>
         </div>
 
+        @if ($isStaff)
         <div class="nav-group">
             <p class="nav-heading">Insights</p>
             <a class="nav-link {{ $active === 'reports' ? 'is-current' : '' }}" href="{{ route('reports') }}" title="Insights and Reports" @if ($active === 'reports') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="chart" /></span><span class="nav-label">Insights &amp; Reports</span></a>
             <a class="nav-link {{ $active === 'activity-logs' ? 'is-current' : '' }}" href="{{ route('activity-logs') }}" title="Activity Logs" @if ($active === 'activity-logs') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="activity" /></span><span class="nav-label">Activity Logs</span></a>
         </div>
+        @endif
 
         <div class="nav-group">
             <p class="nav-heading">System</p>
@@ -44,8 +47,15 @@
     </nav>
 
     <div class="sidebar-footer">
-        <div class="profile-avatar" aria-hidden="true">JC</div>
-        <div class="profile-copy"><span class="profile-name">Jet Carlos</span><span class="profile-role">Preview profile</span></div>
-        <span class="profile-menu" aria-hidden="true">···</span>
+        @php($profileName = auth()->user()?->name ?? 'Guest')
+        <div class="profile-avatar" aria-hidden="true">{{ collect(preg_split('/\s+/', trim($profileName)))->filter()->map(fn ($part) => strtoupper(substr($part, 0, 1)))->take(2)->join('') }}</div>
+        <div class="profile-copy"><span class="profile-name">{{ $profileName }}</span><span class="profile-role">{{ ucfirst(auth()->user()?->role ?? 'guest') }} account</span></div>
+        <div class="popover-anchor profile-menu-anchor">
+            <button class="profile-menu" id="profile-menu-toggle" type="button" aria-label="Open profile menu" title="Open profile menu" data-tooltip="Open profile menu" aria-controls="profile-menu" aria-expanded="false"><x-icon name="more-horizontal" /></button>
+            <div class="popover profile-popover" id="profile-menu" role="menu" hidden>
+                <button class="popover-link" role="menuitem" type="button" data-toast="Profile editing will be connected after sign-in is enabled."><x-icon name="user" /> Profile</button>
+                <button class="popover-link popover-link-danger" role="menuitem" type="button" data-toast="Logout will be connected after authentication is enabled."><x-icon name="log-out" /> Logout</button>
+            </div>
+        </div>
     </div>
 </aside>

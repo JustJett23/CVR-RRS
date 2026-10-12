@@ -1,14 +1,15 @@
 <x-layouts.app title="CVR" page-title="Schedule Timeline" current-page="schedule">
-    <main class="dashboard page-content">
-        <x-page-title eyebrow="PLANNING" title="Schedule Timeline" description="A room-by-room timeline will show bookings, free periods, and maintenance windows." />
+    <main id="main-content" class="dashboard page-content">
+        <x-page-title eyebrow="PLANNING" title="Schedule Timeline" description="Review today’s reservations by floor from the same data that powers the 3D floor plan." action-label="Reserve a room" :action-href="route('reservations')" />
 
         <section class="content-panel" aria-labelledby="schedule-title">
-            <div class="content-panel-heading"><div><p class="eyebrow">CAMPUS SCHEDULE</p><h2 id="schedule-title">Daily room timeline</h2></div><span class="sample-tag">Schedule source not connected</span></div>
-            <div class="timeline-shell" aria-hidden="true">
-                <div class="timeline-hours"><span>08:00</span><span>10:00</span><span>12:00</span><span>14:00</span><span>16:00</span><span>18:00</span></div>
-                <div class="timeline-track"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="content-panel-heading"><div><p class="eyebrow">CAMPUS SCHEDULE</p><h2 id="schedule-title">Daily room timeline</h2></div><span class="live-indicator"><i></i> Live database</span></div>
+            <div class="filter-row" id="schedule-filters" data-endpoint="{{ route('dashboard.floor-plan-data') }}">
+                <label class="filter-field"><span>Date</span><input id="schedule-date-input" type="date" value="{{ today()->toDateString() }}"></label>
+                <label class="filter-field"><span>Floor</span><select id="schedule-floor"><option value="1">2nd Floor</option><option value="2">3rd Floor</option><option value="3">4th Floor</option></select></label>
             </div>
-            <x-empty-state class="timeline-empty" icon="calendar" eyebrow="NO SCHEDULE DATA" title="No verified bookings to display" description="This timeline will populate when approved reservations and room schedules are connected. Sample events are intentionally omitted here." action-label="Review reservation steps" :action-href="route('reservations')" />
+            <p class="availability-note" id="schedule-message" role="status" aria-live="polite">Loading reservations…</p>
+            <ol class="upcoming-list schedule-page-list" id="schedule-list" aria-live="polite"></ol>
         </section>
     </main>
 </x-layouts.app>

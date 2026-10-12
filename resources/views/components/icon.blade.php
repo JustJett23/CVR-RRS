@@ -8,6 +8,28 @@
         @case('bell')
             <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
             @break
+        @case('check')
+            <path d="m5 12 4 4L19 6" />
+            @break
+        @case('more-horizontal')
+            <circle cx="5" cy="12" r="1" fill="currentColor" />
+            <circle cx="12" cy="12" r="1" fill="currentColor" />
+            <circle cx="19" cy="12" r="1" fill="currentColor" />
+            @break
+        @case('user')
+            <circle cx="12" cy="8" r="3.5" />
+            <path d="M5 20c.8-3.2 3.1-5 7-5s6.2 1.8 7 5" />
+            @break
+        @case('log-out')
+            <path d="M10 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h5M14 8l4 4-4 4M18 12H8" />
+            @break
+        @case('shield')
+            <path d="M12 3 19 6v5c0 4.4-2.8 8.1-7 10-4.2-1.9-7-5.6-7-10V6l7-3Z" />
+            <path d="m9 12 2 2 4-4" />
+            @break
+        @case('scan')
+            <path d="M7 3H5a2 2 0 0 0-2 2v2m14-4h2a2 2 0 0 1 2 2v2M3 17v2a2 2 0 0 0 2 2h2m12-4v2a2 2 0 0 1-2 2h-2M7 12h10" />
+            @break
         @case('building')
             <path d="M4 21V5l8-3v19M4 21h16M12 21V9l8-3v15M7 8h2m-2 4h2m-2 4h2m8-4h1m-1 4h1" />
             @break

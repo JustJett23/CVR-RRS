@@ -1,0 +1,111 @@
+{
+  "_fonts-C9MNnjVw.css": {
+    "file": "assets/fonts-C9MNnjVw.css",
+    "src": "_fonts-C9MNnjVw.css"
+  },
+  "_instrument-sans-400-normal-D1W7dsQl.woff": {
+    "file": "assets/instrument-sans-400-normal-D1W7dsQl.woff",
+    "src": "_instrument-sans-400-normal-D1W7dsQl.woff"
+  },
+  "_instrument-sans-400-normal-DRC__1Mx.woff2": {
+    "file": "assets/instrument-sans-400-normal-DRC__1Mx.woff2",
+    "src": "_instrument-sans-400-normal-DRC__1Mx.woff2"
+  },
+  "_instrument-sans-500-normal-Dk9ku72i.woff2": {
+    "file": "assets/instrument-sans-500-normal-Dk9ku72i.woff2",
+    "src": "_instrument-sans-500-normal-Dk9ku72i.woff2"
+  },
+  "_instrument-sans-500-normal-Z6ESRlEs.woff": {
+    "file": "assets/instrument-sans-500-normal-Z6ESRlEs.woff",
+    "src": "_instrument-sans-500-normal-Z6ESRlEs.woff"
+  },
+  "_instrument-sans-600-normal-B7fBEWYG.woff2": {
+    "file": "assets/instrument-sans-600-normal-B7fBEWYG.woff2",
+    "src": "_instrument-sans-600-normal-B7fBEWYG.woff2"
+  },
+  "_instrument-sans-600-normal-B9e8oLYv.woff": {
+    "file": "assets/instrument-sans-600-normal-B9e8oLYv.woff",
+    "src": "_instrument-sans-600-normal-B9e8oLYv.woff"
+  },
+  "node_modules/tesseract.js/src/index.js": {
+    "file": "assets/src-BPnZ9gN6.js",
+    "name": "src",
+    "src": "node_modules/tesseract.js/src/index.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ]
+  },
+  "node_modules/three/build/three.module.js": {
+    "file": "assets/three.module-C8enonVg.js",
+    "name": "three.module",
+    "src": "node_modules/three/build/three.module.js",
+    "isDynamicEntry": true
+  },
+  "node_modules/three/examples/jsm/libs/draco/draco_decoder.js": {
+    "file": "assets/draco_decoder-fzg4nYZr.js",
+    "src": "node_modules/three/examples/jsm/libs/draco/draco_decoder.js"
+  },
+  "node_modules/three/examples/jsm/libs/draco/draco_decoder.wasm": {
+    "file": "assets/draco_decoder-C32yEggz.wasm",
+    "src": "node_modules/three/examples/jsm/libs/draco/draco_decoder.wasm"
+  },
+  "node_modules/three/examples/jsm/libs/draco/draco_wasm_wrapper.js": {
+    "file": "assets/draco_wasm_wrapper-DxJM36Ib.js",
+    "src": "node_modules/three/examples/jsm/libs/draco/draco_wasm_wrapper.js"
+  },
+  "node_modules/three/examples/jsm/libs/draco/gltf/draco_decoder.wasm": {
+    "file": "assets/draco_decoder-Z1_iN-Ht.wasm",
+    "src": "node_modules/three/examples/jsm/libs/draco/gltf/draco_decoder.wasm"
+  },
+  "node_modules/three/examples/jsm/libs/draco/gltf/draco_wasm_wrapper.js": {
+    "file": "assets/draco_wasm_wrapper-fZCQGLGb.js",
+    "src": "node_modules/three/examples/jsm/libs/draco/gltf/draco_wasm_wrapper.js"
+  },
+  "node_modules/three/examples/jsm/loaders/DRACOLoader.js": {
+    "file": "assets/DRACOLoader-DZqOCedQ.js",
+    "name": "DRACOLoader",
+    "src": "node_modules/three/examples/jsm/loaders/DRACOLoader.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "node_modules/three/build/three.module.js"
+    ],
+    "assets": [
+      "assets/draco_decoder-C32yEggz.wasm",
+      "assets/draco_wasm_wrapper-DxJM36Ib.js",
+      "assets/draco_decoder-fzg4nYZr.js",
+      "assets/draco_wasm_wrapper-fZCQGLGb.js",
+      "assets/draco_decoder-Z1_iN-Ht.wasm"
+    ]
+  },
+  "node_modules/three/examples/jsm/loaders/GLTFLoader.js": {
+    "file": "assets/GLTFLoader-BIuxjdlN.js",
+    "name": "GLTFLoader",
+    "src": "node_modules/three/examples/jsm/loaders/GLTFLoader.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "node_modules/three/build/three.module.js"
+    ]
+  },
+  "resources/css/app.css": {
+    "file": "assets/app-COGDKO1P.css",
+    "name": "app",
+    "names": [
+      "app.css"
+    ],
+    "src": "resources/css/app.css",
+    "isEntry": true
+  },
+  "resources/js/app.js": {
+    "file": "assets/app-BKHbJfwq.js",
+    "name": "app",
+    "src": "resources/js/app.js",
+    "isEntry": true,
+    "dynamicImports": [
+      "node_modules/three/build/three.module.js",
+      "node_modules/three/examples/jsm/loaders/GLTFLoader.js",
+      "node_modules/three/examples/jsm/loaders/DRACOLoader.js",
+      "node_modules/tesseract.js/src/index.js"
+    ]
+  }
+}

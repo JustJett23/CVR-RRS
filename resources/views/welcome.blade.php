@@ -1,5 +1,5 @@
 <x-layouts.app title="CVR" page-title="Dashboard" current-page="dashboard">
-    <main class="dashboard" id="dashboard">
+    <main id="main-content" class="dashboard">
         <div class="page-heading">
             <div>
                 <p class="eyebrow">FACILITY COMMAND CENTER <span class="eyebrow-line"></span></p>
@@ -13,20 +13,17 @@
         </div>
 
         <x-floor-plan-workspace :rooms-by-floor="$roomsByFloor">
-            <section class="metrics-grid" aria-label="Illustrative campus summary">
-                <x-metric-card label="Total rooms" value="24" caption="Across 3 buildings" context="SAMPLE" icon="door-closed" tone="primary" />
-                <x-metric-card label="Available now" value="08" caption="Ready to reserve" context="NOW" icon="door-open" tone="green" />
-                <x-metric-card label="Today's reservations" value="12" caption="Across 5 organizations" context="TODAY" icon="calendar-check" />
-                <x-metric-card label="Pending requests" value="03" caption="Awaiting review" context="ACTION" icon="hourglass" tone="amber" />
-                <x-metric-card label="Active issues" value="02" caption="Maintenance follow-up" context="SAMPLE" icon="wrench" tone="issue" />
+            <section class="metrics-grid" aria-label="Campus room summary">
+                <x-metric-card label="Total rooms" :value="$metrics['totalRooms']" caption="Database inventory" context="LIVE" icon="door-closed" tone="primary" />
+                <x-metric-card label="Available now" :value="$metrics['availableRooms']" caption="Ready to reserve" context="LIVE" icon="door-open" tone="green" />
+                @if (in_array(auth()->user()?->role, ['admin', 'creator'], true))
+                    <x-metric-card label="Today's reservations" :value="$metrics['todayReservations']" caption="Current bookings" context="LIVE" icon="calendar-check" />
+                    <x-metric-card label="Pending requests" :value="$metrics['pendingRequests']" caption="Awaiting review" context="LIVE" icon="hourglass" tone="amber" />
+                    <x-metric-card label="Active issues" :value="$metrics['activeIssues']" caption="Maintenance follow-up" context="LIVE" icon="wrench" tone="issue" />
+                @endif
             </section>
         </x-floor-plan-workspace>
 
-        <div class="sample-notice" role="note">
-            <span class="notice-mark" aria-hidden="true">i</span>
-            <span><strong>Illustrative dashboard.</strong> Room counts, schedules, and floor geometry are sample content pending verified campus inventory and building plans.</span>
-        </div>
-
-        <footer class="dashboard-footer"><span>Campus Venue Engine <span class="footer-divider">·</span> Navotas Polytechnic College</span><span>Interface preview · sample data</span></footer>
+        <footer class="dashboard-footer"><span>Campus Venue Engine <span class="footer-divider">·</span> Navotas Polytechnic College</span><span>Live campus database</span></footer>
     </main>
 </x-layouts.app>
