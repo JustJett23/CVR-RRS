@@ -55,7 +55,7 @@
                             <label class="filter-field"><span>Full name</span><input data-scanner-name type="text" name="scanned_name" autocomplete="name" readonly></label>
                             <label class="filter-field"><span>Course / program</span><input data-scanner-course type="text" name="scanned_course" readonly></label>
                             <label class="filter-field"><span>Student number</span><input data-scanner-student-number type="text" name="scanned_student_number" readonly></label>
-                            <label class="filter-field"><span>Contact number</span><input data-scanner-contact type="tel" name="scanned_contact" readonly></label>
+                            <label class="filter-field"><span>Contact number</span><input data-scanner-contact type="tel" name="scanned_contact" autocomplete="tel" placeholder="09XXXXXXXXX" readonly></label>
                             <label class="filter-field"><span>Emergency contact</span><input data-scanner-emergency type="text" name="emergency_contact" autocomplete="off" placeholder="Name and/or Philippine contact number" readonly></label>
                             <div class="scanner-validation" data-scanner-validation aria-live="polite"></div>
                             <button class="primary-button scanner-validate-button" type="button" data-scanner-validate disabled>Validate extracted details <span aria-hidden="true">↗</span></button>

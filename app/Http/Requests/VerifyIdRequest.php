@@ -10,10 +10,17 @@ class VerifyIdRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
-        $studentNumber = preg_replace('/\D+/', '', (string) $this->input('scanned_student_number'));
-        $contact = preg_replace('/\D+/', '', (string) $this->input('scanned_contact'));
-        if (Str::startsWith($contact, '63')) {
-            $contact = '0'.substr($contact, 2);
+        $studentNumber = $this->digitsOnly($this->input('scanned_student_number'));
+        $contact = $this->digitsOnly($this->input('scanned_contact'));
+
+        if (Str::startsWith($contact, '0063')) {
+            $contact = substr($contact, 4);
+        } elseif (Str::startsWith($contact, '63')) {
+            $contact = substr($contact, 2);
+        }
+
+        if (preg_match('/^9\d{9}$/', $contact) === 1) {
+            $contact = '0'.$contact;
         }
 
         $this->merge([
@@ -45,12 +52,24 @@ class VerifyIdRequest extends FormRequest
             'scanned_name' => ['required', 'string', 'max:150'],
             'scanned_course' => ['required', 'string', 'max:150'],
             'scanned_student_number' => ['required', 'regex:/^[0-9]{6}$/', 'unique:users,student_number'],
-            'scanned_contact' => ['required', 'regex:/^(?:09\d{9}|\+63\s*9\d{9})$/'],
+            'scanned_contact' => ['required', 'regex:/^09\d{9}$/'],
             'emergency_contact' => ['required', 'string', 'max:150'],
             'organization_id' => ['nullable', 'string', 'max:50', 'regex:/^ICS$/i'],
             'email' => ['nullable', 'email', 'regex:/^[^@\s]+@navotaspolytechniccollege\.edu\.ph$/i', 'unique:users,email'],
             'password' => ['nullable', 'string', 'min:1'],
             'remember' => ['sometimes', 'boolean'],
         ];
+    }
+
+    /**
+     * Keep malformed non-scalar request values from causing PHP cast warnings.
+     */
+    private function digitsOnly(mixed $value): string
+    {
+        if (! is_string($value) && ! is_int($value) && ! is_float($value)) {
+            return '';
+        }
+
+        return preg_replace('/\D+/', '', (string) $value) ?? '';
     }
 }

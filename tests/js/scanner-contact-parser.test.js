@@ -46,3 +46,23 @@ test('leaves ambiguous unlabeled phone numbers empty instead of guessing', () =>
 
     assert.equal(result.contact, '');
 });
+
+test('extracts a contact number split across OCR lines', () => {
+    const result = extractBackContacts(`Contact Number
+0917
+123
+4567
+Emergency contact
+Caroline Bartolay
+09756326393`);
+
+    assert.equal(result.contact, '09171234567');
+    assert.equal(result.emergency, 'Caroline Bartolay · 09756326393');
+});
+
+test('normalizes international contact numbers to local format', () => {
+    const result = extractBackContacts(`Contact Number: +63 917 123 4567
+Emergency contact: Caroline Bartolay 09756326393`);
+
+    assert.equal(result.contact, '09171234567');
+});

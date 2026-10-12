@@ -616,6 +616,40 @@ if (organizationScanner) {
         validationMessage.textContent = message;
     }
 
+    function normalizeScannerError(error, stage = 'ocr') {
+        const name = String(error?.name || '');
+        const message = String(error?.message || error || '').toLowerCase();
+
+        if (stage === 'camera') {
+            if (['NotAllowedError', 'SecurityError'].includes(name)) {
+                return { code: 'CAMERA_PERMISSION_DENIED', message: 'Camera permission was denied. Upload a photo or enter the missing details manually.' };
+            }
+            if (['NotFoundError', 'DevicesNotFoundError'].includes(name)) {
+                return { code: 'CAMERA_NOT_FOUND', message: 'No camera was found. Upload a photo or enter the missing details manually.' };
+            }
+            if (['NotReadableError', 'TrackStartError'].includes(name)) {
+                return { code: 'CAMERA_BUSY', message: 'The camera is busy or unavailable. Close other camera apps, then try again or upload a photo.' };
+            }
+
+            return { code: 'CAMERA_START_FAILED', message: 'The camera could not start. Upload a photo or enter the missing details manually.' };
+        }
+
+        if (/timeout|took too long|timed out/.test(message)) {
+            return { code: 'OCR_TIMEOUT', message: 'The text reader took too long. Try a smaller, clearer photo or enter the missing details manually.' };
+        }
+        if (/fetch|network|traineddata|wasm|worker|language data|404|load failed/.test(message)) {
+            return { code: 'OCR_ASSET_UNAVAILABLE', message: 'The text reader could not load. Check your connection, retry, or enter the missing details manually.' };
+        }
+        if (/decode|invalid image|unsupported image|image format|blob/.test(message) || name === 'EncodingError') {
+            return { code: 'INVALID_IMAGE', message: 'This image could not be opened. Choose a JPG, PNG, or WebP photo and try again.' };
+        }
+        if (/canvas|security|tainted|image dimensions/.test(message)) {
+            return { code: 'IMAGE_PROCESSING_FAILED', message: 'The image could not be prepared for reading. Choose a clear photo or enter the missing details manually.' };
+        }
+
+        return { code: 'OCR_FAILED', message: 'The ID could not be read. Try a clear, well-lit photo or enter the missing details manually.' };
+    }
+
     function scannerFieldsComplete() {
         return [nameInput, courseInput, studentNumberInput, contactInput, emergencyInput].every((field) => field?.value.trim());
     }
@@ -815,35 +849,45 @@ if (organizationScanner) {
     async function prepareOcrImage(source) {
         let drawable = source;
         let objectUrl = null;
-        if (source instanceof Blob) {
-            objectUrl = URL.createObjectURL(source);
-            drawable = new Image();
-            drawable.src = objectUrl;
-            await drawable.decode();
-        }
+        try {
+            if (source instanceof Blob) {
+                objectUrl = URL.createObjectURL(source);
+                drawable = new Image();
+                drawable.src = objectUrl;
+                await drawable.decode();
+            }
 
-        const width = drawable.videoWidth || drawable.naturalWidth || drawable.width;
-        const height = drawable.videoHeight || drawable.naturalHeight || drawable.height;
-        const longestSide = Math.max(width, height, 1);
-        const scale = Math.min(1.8, Math.max(0.7, 1800 / longestSide));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(width * scale);
-        canvas.height = Math.round(height * scale);
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'high';
-        context.filter = 'grayscale(1) contrast(1.35) brightness(1.06)';
-        context.drawImage(drawable, 0, 0, canvas.width, canvas.height);
-        context.filter = 'none';
-        if (objectUrl) URL.revokeObjectURL(objectUrl);
-        return canvas;
+            const width = drawable.videoWidth || drawable.naturalWidth || drawable.width;
+            const height = drawable.videoHeight || drawable.naturalHeight || drawable.height;
+            if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+                throw new Error('Invalid image dimensions.');
+            }
+
+            const longestSide = Math.max(width, height);
+            const scale = Math.min(1.8, Math.max(0.7, 1800 / longestSide));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(width * scale);
+            canvas.height = Math.round(height * scale);
+            const context = canvas.getContext('2d', { willReadFrequently: true });
+            if (!context) throw new Error('Canvas image processing is unavailable.');
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+            context.filter = 'grayscale(1) contrast(1.35) brightness(1.06)';
+            context.drawImage(drawable, 0, 0, canvas.width, canvas.height);
+            context.filter = 'none';
+            return canvas;
+        } finally {
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        }
     }
 
     function cropOcrRegion(canvas, top, height) {
         const crop = document.createElement('canvas');
         crop.width = canvas.width;
         crop.height = Math.max(1, Math.round(canvas.height * height));
-        crop.getContext('2d').drawImage(
+        const context = crop.getContext('2d');
+        if (!context) throw new Error('Canvas image processing is unavailable.');
+        context.drawImage(
             canvas,
             0,
             Math.round(canvas.height * top),
@@ -877,21 +921,21 @@ if (organizationScanner) {
     }
 
     function normalizeStudentNumber(value) {
-        const normalized = String(value || '')
+        return String(value || '')
             .toUpperCase()
             .replace(/[OQ]/g, '0')
             .replace(/[IL]/g, '1')
-            .replace(/[SR]/g, '5')
+            .replace(/S/g, '5')
             .replace(/[BZ]/g, (letter) => letter === 'B' ? '8' : '2')
             .replace(/[^0-9]/g, '');
-        return normalized === '250354' ? '250154' : normalized;
     }
 
     function normalizeOcrName(value) {
         return String(value || '')
             .replace(/\b([58])\./g, 'B.')
+            .replace(/^(?:FULL\s+NAME|NAME)\s*[:.-]?\s*/i, '')
             .replace(/^[^A-Za-z]+/, '')
-            .replace(/^[A-Z]\s+(?=[A-Z]{2,}\s)/, '')
+            .replace(/^[A-Z]\s+(?=[A-Z][a-z]+\s)/, '')
             .replace(/\s+/g, ' ')
             .trim();
     }
@@ -901,13 +945,25 @@ if (organizationScanner) {
     }
 
     function extractStudentNumber(value) {
-        const normalized = normalizeStudentNumber(value);
-        return normalized.match(/25\d{4}/)?.[0] || normalized;
+        const text = String(value || '').toUpperCase();
+        const candidatesFrom = (candidateText) => [...candidateText.matchAll(/[0-9OQILSBZ](?:[\s-]*[0-9OQILSBZ]){5}/g)]
+            .map((match) => normalizeStudentNumber(match[0]))
+            .filter((candidate) => /^25\d{4}$/.test(candidate));
+        const labeledSections = [...text.matchAll(/(?:STUDENT\s*(?:NO\.?|NUMBER)|STUD\.?\s*NO\.?)[^\r\n]{0,40}(?:\r?\n[^\r\n]{0,40})?/gi)]
+            .flatMap((match) => candidatesFrom(match[0]));
+
+        if (labeledSections.length > 0) {
+            return labeledSections[0];
+        }
+
+        const unlabelledCandidates = [...new Set(candidatesFrom(text))];
+
+        return unlabelledCandidates.length === 1 ? unlabelledCandidates[0] : '';
     }
 
     function isLikelyPersonalName(value) {
         const normalized = String(value || '').replace(/\s+/g, ' ').trim().toUpperCase();
-        const blockedTerms = /(?:INTEGRATED|COMPUTER|SOCIETY|ORGANIZATION|NAVOTAS|POLYTECHNIC|COLLEGE|NPC|STUD(?:ENT)?|CONTACT|VALIDATION|SIGNATURE|ASSOCIATE|BACHELOR|COURSE|PROGRAM|SYSTEM|INFORMATION|CITY|KAUNLARAN|ADDRESS|STREET|PHILIPPINES|MANILA)/;
+        const blockedTerms = /(?:\bFULL\s+NAME\b|\bNAME\b|\bSURNAME\b|\bGIVEN\s+NAME\b|INTEGRATED|COMPUTER|SOCIETY|ORGANIZATION|NAVOTAS|POLYTECHNIC|COLLEGE|NPC|STUD(?:ENT)?|CONTACT|VALIDATION|SIGNATURE|ASSOCIATE|BACHELOR|COURSE|PROGRAM|SYSTEM|INFORMATION|CITY|KAUNLARAN|ADDRESS|STREET|PHILIPPINES|MANILA)/;
         const words = normalized.replace(/[^A-Z .'-]/g, ' ').split(/\s+/).filter(Boolean);
         const fullNameWords = words.filter((word) => word.replace(/\./g, '').length >= 3);
 
@@ -959,6 +1015,11 @@ if (organizationScanner) {
     }
 
     async function processIdImage(source) {
+        if (isOcrProcessing) {
+            if (status) status.textContent = 'The previous scan is still running. Wait for it to finish, then try again.';
+            return;
+        }
+
         const scannedSide = scanSide;
         if (scannedSide === 'front') {
             [nameInput, courseInput, studentNumberInput].forEach((field) => {
@@ -967,10 +1028,10 @@ if (organizationScanner) {
         }
         if (status) status.textContent = 'Reading the ID… this may take a few seconds.';
         showCveLoader(scannedSide === 'front' ? 'Reading the front of your ID…' : 'Reading the back of your ID…');
-        await yieldToBrowser();
         isOcrProcessing = true;
 
         try {
+            await yieldToBrowser();
             const [worker, preparedImage] = await Promise.all([
                 withTimeout(getOcrWorker(), 20000, 'The OCR engine took too long to start.'),
                 prepareOcrImage(source),
@@ -1041,23 +1102,7 @@ if (organizationScanner) {
             }
             await worker.setParameters({ tessedit_pageseg_mode: '3', tessedit_char_whitelist: '' });
             const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-            const labeledStudentTexts = [...text.matchAll(/(?:stud\.?\s*no\.?|student\s*(?:no\.?|number))[^\r\n]{0,40}/gi)]
-                .map((match) => match[0]);
-            const studentNumberSources = [
-                ...labeledStudentTexts,
-                ...labeledStudentTexts.map((value) => value.match(/[0-9A-Za-z][0-9A-Za-z\s-]{4,}/)?.[0] || ''),
-                ...lines.filter((line) => /stud\.?\s*no\.?|student\s*(?:no\.?|number)/i.test(line))
-                    .map((line) => line.match(/[0-9A-Za-z-]{5,}/)?.[0] || ''),
-                focusedNumberText,
-            ].map((value) => {
-                const normalized = extractStudentNumber(value);
-                const numberPart = String(value || '').replace(/.*?(?:stud\.?\s*no\.?|student\s*(?:no\.?|number))/i, '');
-                const compact = numberPart.replace(/[^0-9A-Za-z]/gi, '');
-                const score = (compact.length === 6 ? 2 : 0) + (/[A-Za-z]/.test(compact) ? 1 : 0);
-                return { normalized, score };
-            }).filter(({ normalized }) => isValidStudentNumber(normalized));
-            studentNumberSources.sort((left, right) => right.score - left.score);
-            const studentNumber = studentNumberSources[0]?.normalized || '';
+            const studentNumber = extractStudentNumber(`${text}\nStudent number ${focusedNumberText}`);
             const backContacts = scannedSide === 'back'
                 ? extractBackContacts(text)
                 : { contact: '', emergency: '' };
@@ -1099,7 +1144,7 @@ if (organizationScanner) {
             if (scannedSide === 'front') frontScanDetected = sideValid;
             else backScanDetected = sideValid;
             scannerFailed = scannedSide === 'front' ? !sideValid : (scannerFailed || !sideValid);
-            setExtractedFieldsEditable(scannerFailed);
+            setExtractedFieldsEditable(true);
             if (scannedSide === 'front') {
                 if (sideValid) {
                     scanSide = 'back';
@@ -1128,13 +1173,15 @@ if (organizationScanner) {
             scannerFailed = true;
             setExtractedFieldsEditable(true);
             updateEmailAccess();
-            if (status) status.textContent = 'The ID could not be read. Try a clearer, well-lit image or enter the details manually.';
+            const failure = normalizeScannerError(error);
+            organizationScanner.dataset.errorCode = failure.code;
+            if (status) status.textContent = failure.message;
             if (resultStatus) {
                 resultStatus.hidden = false;
                 resultStatus.className = 'scanner-result-status is-error';
-                resultStatus.textContent = '× Scan failed. Try again with the ID flat, well-lit, and fully inside the frame.';
+                resultStatus.textContent = `× ${failure.message}`;
             }
-            console.error(error);
+            console.error(`[ID scanner] ${failure.code}`);
         } finally {
             isOcrProcessing = false;
             autoCapturePending = false;
@@ -1331,7 +1378,8 @@ if (organizationScanner) {
             const payload = await response.json();
             if (!response.ok) throw new Error(payload.message || Object.values(payload.errors || {}).flat().join(' ') || 'The ID details could not be validated.');
             setValidationMessage('Validated successfully. Opening the dashboard…', 'success');
-            window.location.assign(payload.redirect || '/dashboard');
+            const redirectPath = new URL(payload.redirect || '/dashboard', window.location.href).pathname;
+            window.location.assign(new URL(redirectPath, window.location.origin).href);
         } catch (error) {
             setValidationMessage(`Validation failed: ${error.message}`);
             validateButton.disabled = false;
