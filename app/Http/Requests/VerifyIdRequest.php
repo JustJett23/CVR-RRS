@@ -72,4 +72,18 @@ class VerifyIdRequest extends FormRequest
 
         return preg_replace('/\D+/', '', (string) $value) ?? '';
     }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'scanned_contact.required' => 'Enter your contact number manually if scanning did not read it.',
+            'scanned_contact.regex' => 'Enter a valid Philippine mobile number in 09XXXXXXXXX format.',
+            'scanned_student_number.unique' => 'An account already exists for this student number. Sign in with your NPC institutional email instead.',
+            'email.unique' => 'An account already exists for this institutional email. Sign in instead.',
+        ];
+    }
 }
+
