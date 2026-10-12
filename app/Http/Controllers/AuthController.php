@@ -21,7 +21,7 @@ class AuthController extends Controller
 {
     public function create(): View
     {
-        return view('auth.login');
+        return view('dashboard');
     }
 
     public function store(LoginRequest $request): JsonResponse
