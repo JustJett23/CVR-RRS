@@ -13,7 +13,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 use Illuminate\View\View;
 
 class AuthController extends Controller
@@ -39,7 +41,7 @@ class AuthController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard'));
+        return redirect()->route('dashboard');
     }
 
     public function verifyId(VerifyIdRequest $request): JsonResponse
@@ -107,20 +109,40 @@ class AuthController extends Controller
             }, 3);
         } catch (QueryException $exception) {
             $sqlState = (string) ($exception->errorInfo[0] ?? $exception->getCode());
+            $driverCode = (int) ($exception->errorInfo[1] ?? 0);
+            $isUniqueViolation = $sqlState === '23505'
+                || ($sqlState === '23000' && in_array($driverCode, [1062, 1555, 2067], true));
 
-            if (in_array($sqlState, ['23000', '23505'], true)) {
-                return response()->json(['message' => 'An account already exists for this student number or institutional email.'], 409);
+            if ($isUniqueViolation) {
+                return response()->json([
+                    'message' => 'An account already exists for this student number or institutional email.',
+                ], 409);
             }
 
-            throw $exception;
-        }
+            Log::error('Student ID verification database operation failed.', [
+                'sql_state' => $sqlState,
+                'driver_code' => $driverCode,
+            ]);
 
+            return response()->json([
+                'message' => 'Account verification is temporarily unavailable. Please try again shortly.',
+            ], 503)->header('Cache-Control', 'no-store, private');
+        } catch (Throwable $exception) {
+            Log::error('Student ID verification failed unexpectedly.', [
+                'exception' => $exception::class,
+            ]);
+
+            return response()->json([
+                'message' => 'Account verification could not be completed. Your details are still available; retry shortly or use institutional email sign-in.',
+            ], 503)->header('Cache-Control', 'no-store, private');
+        }
         Auth::login($user, $request->boolean('remember'));
         $request->session()->regenerate();
         $emailMessage = $request->filled('email') ? 'institutional email accepted' : 'institutional email generated';
         $request->session()->flash('onboarding_notification', 'NPC ID verified. Personal QR token created, '.$emailMessage.', and your temporary password was securely saved.');
 
-        return response()->json(['redirect' => route('dashboard')]);
+        return response()->json(['redirect' => route('dashboard', absolute: false)])
+            ->header('Cache-Control', 'no-store, private');
     }
 
     private function institutionalEmail(string $name, string $studentNumber): string
@@ -141,3 +163,4 @@ class AuthController extends Controller
         return redirect()->route('login');
     }
 }
+
