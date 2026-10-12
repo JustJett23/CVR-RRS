@@ -51,11 +51,11 @@ class VerifyIdRequest extends FormRequest
         return [
             'scanned_name' => ['required', 'string', 'max:150'],
             'scanned_course' => ['required', 'string', 'max:150'],
-            'scanned_student_number' => ['required', 'regex:/^[0-9]{6}$/', 'unique:users,student_number'],
+            'scanned_student_number' => ['required', 'regex:/^[0-9]{6}$/'],
             'scanned_contact' => ['required', 'regex:/^09\d{9}$/'],
             'emergency_contact' => ['required', 'string', 'max:150'],
             'organization_id' => ['nullable', 'string', 'max:50', 'regex:/^ICS$/i'],
-            'email' => ['nullable', 'email', 'regex:/^[^@\s]+@navotaspolytechniccollege\.edu\.ph$/i', 'unique:users,email'],
+            'email' => ['nullable', 'email', 'regex:/^[^@\s]+@navotaspolytechniccollege\.edu\.ph$/i'],
             'password' => ['nullable', 'string', 'min:1'],
             'remember' => ['sometimes', 'boolean'],
         ];
@@ -81,8 +81,6 @@ class VerifyIdRequest extends FormRequest
         return [
             'scanned_contact.required' => 'Enter your contact number manually if scanning did not read it.',
             'scanned_contact.regex' => 'Enter a valid Philippine mobile number in 09XXXXXXXXX format.',
-            'scanned_student_number.unique' => 'An account already exists for this student number. Sign in with your NPC institutional email instead.',
-            'email.unique' => 'An account already exists for this institutional email. Sign in instead.',
         ];
     }
 }
