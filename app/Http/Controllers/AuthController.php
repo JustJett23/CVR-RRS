@@ -47,7 +47,40 @@ class AuthController extends Controller
     public function verifyId(VerifyIdRequest $request): JsonResponse
     {
         $data = $request->validated();
+        $existingUser = User::query()
+            ->where('student_number', $data['scanned_student_number'])
+            ->first();
+
+        if ($existingUser !== null) {
+            if (! $existingUser->is_active) {
+                return response()->json([
+                    'message' => 'This account is inactive. Sign in with your NPC institutional email or contact campus support.',
+                ], 403)->header('Cache-Control', 'no-store, private');
+            }
+
+            if ($this->normalizeCourse($existingUser->course) !== $this->normalizeCourse($data['scanned_course'])
+                || $this->normalizeContactNumber($existingUser->contact_number) !== $this->normalizeContactNumber($data['scanned_contact'])) {
+                return response()->json([
+                    'message' => 'An account exists for this student number, but the scanned course or contact number does not match. Sign in with your NPC institutional email instead.',
+                ], 409)->header('Cache-Control', 'no-store, private');
+            }
+
+            Auth::login($existingUser, $request->boolean('remember'));
+            $request->session()->regenerate();
+            $request->session()->flash('onboarding_notification', 'NPC ID verified. Welcome back.');
+
+            return response()->json(['redirect' => route('dashboard', absolute: false)])
+                ->header('Cache-Control', 'no-store, private');
+        }
+
         $email = $data['email'] ?? $this->institutionalEmail($data['scanned_name'], $data['scanned_student_number']);
+
+        if (User::query()->where('email', $email)->exists()) {
+            return response()->json([
+                'message' => 'That NPC institutional email is already linked to another account. Sign in with your institutional email instead.',
+            ], 409)->header('Cache-Control', 'no-store, private');
+        }
+
         $password = $data['password'] ?? Str::random(16);
 
         try {
@@ -143,6 +176,30 @@ class AuthController extends Controller
 
         return response()->json(['redirect' => route('dashboard', absolute: false)])
             ->header('Cache-Control', 'no-store, private');
+    }
+
+    private function normalizeCourse(?string $course): string
+    {
+        return strtolower(preg_replace('/[^a-z0-9]+/i', '', trim((string) $course)) ?? '');
+    }
+
+    private function normalizeContactNumber(?string $contact): string
+    {
+        $digits = preg_replace('/\D+/', '', (string) $contact) ?? '';
+
+        if (str_starts_with($digits, '0063')) {
+            return '0'.substr($digits, 4);
+        }
+
+        if (str_starts_with($digits, '63')) {
+            return '0'.substr($digits, 2);
+        }
+
+        if (preg_match('/^9\d{9}$/', $digits) === 1) {
+            return '0'.$digits;
+        }
+
+        return $digits;
     }
 
     private function institutionalEmail(string $name, string $studentNumber): string
