@@ -26,8 +26,9 @@
                 @if ($errors->any())
                     <div class="notice-panel" role="alert">{{ $errors->first() }}</div>
                 @endif
-                <form id="login-form" method="POST" action="{{ route('login.store') }}" class="stack-form" data-loading-form data-loading-message="Validating your NPC access…">
+                <form id="login-form" method="POST" action="{{ route('login.store', absolute: false) }}" data-verify-url="{{ route('login.verify-id', absolute: false) }}" data-dashboard-url="{{ route('dashboard', absolute: false) }}" class="stack-form">
                     @csrf
+                    <p class="scanner-validation-message is-error" data-login-message role="alert" aria-live="assertive" hidden></p>
                     <div class="org-scanner" data-scanner>
                         <div class="scanner-frame">
                             <video data-scanner-video playsinline muted aria-label="Organization ID camera preview"></video>

@@ -8,7 +8,6 @@ use App\Models\User;
 use App\Models\UserNotification;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
@@ -25,23 +24,29 @@ class AuthController extends Controller
         return view('auth.login');
     }
 
-    public function store(LoginRequest $request): RedirectResponse
+    public function store(LoginRequest $request): JsonResponse
     {
         $credentials = $request->safe()->only(['email', 'password']);
 
         if (! Auth::attempt($credentials, $request->boolean('remember'))) {
-            return back()->withErrors(['email' => 'The provided credentials are incorrect.'])->onlyInput('email');
+            return response()->json([
+                'message' => 'The provided credentials are incorrect.',
+                'errors' => ['email' => ['The provided credentials are incorrect.']],
+            ], 422)->header('Cache-Control', 'no-store, private');
         }
 
         if (! $request->user()->is_active) {
             Auth::logout();
 
-            return back()->withErrors(['email' => 'This account is inactive.'])->onlyInput('email');
+            return response()->json([
+                'message' => 'This account is inactive.',
+                'errors' => ['email' => ['This account is inactive.']],
+            ], 403)->header('Cache-Control', 'no-store, private');
         }
 
         $request->session()->regenerate();
 
-        return redirect()->route('dashboard');
+        return response()->json(['authenticated' => true])->header('Cache-Control', 'no-store, private');
     }
 
     public function verifyId(VerifyIdRequest $request): JsonResponse
@@ -69,7 +74,7 @@ class AuthController extends Controller
             $request->session()->regenerate();
             $request->session()->flash('onboarding_notification', 'NPC ID verified. Welcome back.');
 
-            return response()->json(['redirect' => route('dashboard', absolute: false)])
+            return response()->json(['authenticated' => true])
                 ->header('Cache-Control', 'no-store, private');
         }
 
@@ -174,7 +179,7 @@ class AuthController extends Controller
         $emailMessage = $request->filled('email') ? 'institutional email accepted' : 'institutional email generated';
         $request->session()->flash('onboarding_notification', 'NPC ID verified. Personal QR token created, '.$emailMessage.', and your temporary password was securely saved.');
 
-        return response()->json(['redirect' => route('dashboard', absolute: false)])
+        return response()->json(['authenticated' => true])
             ->header('Cache-Control', 'no-store, private');
     }
 

@@ -590,6 +590,8 @@ if (organizationScanner) {
     const scannerEmailInput = organizationScanner.querySelector('[data-scanner-email]');
     const emailInput = emailLoginPanel?.querySelector('input[name="email"]');
     const passwordInput = loginForm?.querySelector('input[name="password"]');
+    const loginMessage = loginForm?.querySelector('[data-login-message]');
+    const emailRememberInput = emailLoginPanel?.querySelector('input[name="remember"]');
     let mediaStream = null;
     let barcodeDetector = null;
     let ocrWorkerPromise = null;
@@ -614,6 +616,56 @@ if (organizationScanner) {
         if (!validationMessage) return;
         validationMessage.className = `scanner-validation-message is-${type}`;
         validationMessage.textContent = message;
+    }
+
+    function setLoginMessage(message) {
+        if (!loginMessage) return;
+        loginMessage.textContent = message;
+        loginMessage.hidden = !message;
+    }
+
+    function redirectToDashboard() {
+        const destination = new URL(loginForm?.dataset.dashboardUrl || '/dashboard', window.location.origin);
+        window.location.assign(destination.pathname);
+    }
+
+    async function submitEmailLogin() {
+        if (!loginForm || !emailSubmit) return;
+
+        const credentials = new FormData(loginForm);
+        credentials.set('email', emailInput?.value.trim() || '');
+        credentials.set('password', passwordInput?.value || '');
+        credentials.set('remember', emailRememberInput?.checked ? '1' : '0');
+        emailSubmit.disabled = true;
+        setLoginMessage('');
+        showCveLoader('Signing in…');
+        let isRedirecting = false;
+
+        try {
+            const response = await withTimeout(fetch(loginForm.action, {
+                method: 'POST',
+                body: credentials,
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+                cache: 'no-store',
+            }), 20000, 'Sign-in took too long. Check your connection and try again.');
+            const payload = await response.json().catch(() => ({}));
+            const validationMessage = Object.values(payload?.errors || {}).flat().join(' ');
+            if (!response.ok || payload?.authenticated !== true) {
+                throw new Error(payload?.message || validationMessage || 'We could not sign you in. Check your details and try again.');
+            }
+
+            isRedirecting = true;
+            redirectToDashboard();
+        } catch (error) {
+            setLoginMessage(error?.message || 'We could not sign you in. Check your details and try again.');
+            emailInput?.focus();
+        } finally {
+            if (!isRedirecting) {
+                emailSubmit.disabled = false;
+                hideCveLoader();
+            }
+        }
     }
 
     function normalizeScannerError(error, stage = 'ocr') {
@@ -1364,8 +1416,11 @@ if (organizationScanner) {
         if (emailLoginMode) emailInput?.focus();
     });
     loginForm?.addEventListener('submit', (event) => {
-        if (emailLoginMode) return;
         event.preventDefault();
+        if (emailLoginMode) {
+            submitEmailLogin();
+            return;
+        }
         hideCveLoader();
         emailLoginMode = true;
         emailLoginToggle.textContent = 'Use organization ID scanner';
@@ -1406,16 +1461,15 @@ if (organizationScanner) {
         showCveLoader('Validating your NPC ID details…');
         validateButton.disabled = true;
         try {
-            const response = await fetch('/login/verify-id', {
+            const response = await fetch(loginForm.dataset.verifyUrl || '/login/verify-id', {
                 method: 'POST',
                 headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': loginForm.querySelector('input[name="_token"]').value },
                 body: JSON.stringify(Object.fromEntries(new FormData(loginForm))),
             });
             const payload = await response.json();
-            if (!response.ok) throw new Error(payload.message || Object.values(payload.errors || {}).flat().join(' ') || 'The ID details could not be validated.');
+            if (!response.ok || payload.authenticated !== true) throw new Error(payload.message || Object.values(payload.errors || {}).flat().join(' ') || 'The ID details could not be validated.');
             setValidationMessage('Validated successfully. Opening the dashboard…', 'success');
-            const redirectPath = new URL(payload.redirect || '/dashboard', window.location.href).pathname;
-            window.location.assign(new URL(redirectPath, window.location.origin).href);
+            redirectToDashboard();
         } catch (error) {
             setValidationMessage(`Validation failed: ${error.message}`);
             validateButton.disabled = false;

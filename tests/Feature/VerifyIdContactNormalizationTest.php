@@ -31,7 +31,8 @@ class VerifyIdContactNormalizationTest extends TestCase
                 'organization_id' => 'ICS',
             ])
                 ->assertOk()
-                ->assertJsonPath('redirect', route('dashboard'));
+                ->assertJsonPath('authenticated', true)
+                ->assertJsonMissingPath('redirect');
 
             $this->assertSame(
                 $expectedContact,
