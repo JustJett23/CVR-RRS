@@ -1,4 +1,3 @@
-
 <?php
 
 use Illuminate\Http\Request;
@@ -32,7 +31,7 @@ $defaults = [
     'APP_PACKAGES_CACHE' => '/tmp/cvr-rrs-packages.php',
     'APP_ROUTES_CACHE' => '/tmp/cvr-rrs-routes.php',
     'APP_SERVICES_CACHE' => '/tmp/cvr-rrs-services.php',
-    'SESSION_DRIVER' => 'cookie',
+    'SESSION_DRIVER' => 'database',
     'CACHE_STORE' => 'array',
     'QUEUE_CONNECTION' => 'sync',
     'LOG_CHANNEL' => 'stderr',
