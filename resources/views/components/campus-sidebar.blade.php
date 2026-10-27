@@ -1,5 +1,7 @@
 @props(['active' => 'dashboard'])
 @php($isStaff = in_array(auth()->user()?->role, ['admin', 'creator'], true))
+@php($isStudent = auth()->user()?->role === 'student')
+@php($isAdmin = auth()->user()?->role === 'admin')
 
 <aside class="sidebar" id="sidebar" aria-label="Main navigation">
     <a class="brand" href="{{ route('dashboard') }}" aria-label="Campus Venue Engine dashboard">
@@ -13,49 +15,44 @@
     <nav class="sidebar-nav">
         <div class="nav-group">
             <p class="nav-heading">Workspace</p>
-            <a class="nav-link {{ $active === 'dashboard' ? 'is-current' : '' }}" href="{{ route('dashboard') }}" title="Dashboard" @if ($active === 'dashboard') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="dashboard" /></span><span class="nav-label">Dashboard</span></a>
-            <a class="nav-link {{ $active === 'floor-plan' ? 'is-current' : '' }}" href="{{ route('floor-plan') }}" title="3D Floor Plan" @if ($active === 'floor-plan') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="layers" /></span><span class="nav-label">3D Floor Plan</span></a>
-            <a class="nav-link {{ $active === 'rooms' ? 'is-current' : '' }}" href="{{ route('rooms') }}" title="Room Directory" @if ($active === 'rooms') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="door-open" /></span><span class="nav-label">Room Directory</span></a>
+            <a class="nav-link {{ $active === 'dashboard' ? 'is-current' : '' }}" href="{{ route('dashboard') }}" title="Dashboard" data-sidebar-tooltip="Dashboard" @if ($active === 'dashboard') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="dashboard" /></span><span class="nav-label">Dashboard</span></a>
+            <a class="nav-link {{ $active === 'floor-plan' ? 'is-current' : '' }}" href="{{ route('floor-plan') }}" title="3D Floor Plan" data-sidebar-tooltip="3D Floor Plan" @if ($active === 'floor-plan') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="layers" /></span><span class="nav-label">3D Floor Plan</span></a>
+            <a class="nav-link {{ $active === 'rooms' ? 'is-current' : '' }}" href="{{ route('rooms') }}" title="{{ $isAdmin ? 'Configure Rooms' : 'Room Directory' }}" data-sidebar-tooltip="{{ $isAdmin ? 'Configure Rooms' : 'Room Directory' }}" @if ($active === 'rooms') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="door-open" /></span><span class="nav-label">{{ $isAdmin ? 'Configure Rooms' : 'Room Directory' }}</span></a>
         </div>
 
         <div class="nav-group">
             <p class="nav-heading">Planning</p>
-            <a class="nav-link {{ $active === 'reservations' ? 'is-current' : '' }}" href="{{ route('reservations') }}" title="Reservations" @if ($active === 'reservations') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="calendar-check" /></span><span class="nav-label">Reservations</span></a>
-            <a class="nav-link {{ $active === 'schedule' ? 'is-current' : '' }}" href="{{ route('schedule') }}" title="Schedule Timeline" @if ($active === 'schedule') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="calendar" /></span><span class="nav-label">Schedule Timeline</span></a>
-            <a class="nav-link {{ $active === 'availability' ? 'is-current' : '' }}" href="{{ route('availability') }}" title="Room Availability" @if ($active === 'availability') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="clock" /></span><span class="nav-label">Room Availability</span></a>
+            @unless ($isStudent || $isAdmin)
+                <a class="nav-link {{ $active === 'reservations' ? 'is-current' : '' }}" href="{{ route('reservations') }}" title="Reservations" data-sidebar-tooltip="Reservations" @if ($active === 'reservations') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="calendar-check" /></span><span class="nav-label">Reservations</span></a>
+            @endunless
+            <a class="nav-link {{ $active === 'schedule' ? 'is-current' : '' }}" href="{{ route('schedule') }}" title="Schedule Timeline" data-sidebar-tooltip="Schedule Timeline" @if ($active === 'schedule') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="calendar" /></span><span class="nav-label">Schedule Timeline</span></a>
+            <a class="nav-link {{ $active === 'availability' ? 'is-current' : '' }}" href="{{ route('availability') }}" title="Room Availability" data-sidebar-tooltip="Room Availability" @if ($active === 'availability') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="clock" /></span><span class="nav-label">Room Availability</span></a>
         </div>
 
         <div class="nav-group">
             <p class="nav-heading">Operations</p>
-            <a class="nav-link {{ $active === 'equipment' ? 'is-current' : '' }}" href="{{ route('equipment') }}" title="Equipment" @if ($active === 'equipment') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="package" /></span><span class="nav-label">Equipment</span></a>
-            <a class="nav-link {{ $active === 'equipment-requests' ? 'is-current' : '' }}" href="{{ route('equipment-requests') }}" title="Equipment Requests" @if ($active === 'equipment-requests') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="list-checks" /></span><span class="nav-label">Equipment Requests</span></a>
+            <a class="nav-link {{ $active === 'equipment' ? 'is-current' : '' }}" href="{{ route('equipment') }}" title="Equipment" data-sidebar-tooltip="Equipment" @if ($active === 'equipment') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="package" /></span><span class="nav-label">Equipment</span></a>
+            <a class="nav-link {{ $active === 'equipment-requests' ? 'is-current' : '' }}" href="{{ route('equipment-requests') }}" title="Equipment Requests" data-sidebar-tooltip="Equipment Requests" @if ($active === 'equipment-requests') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="list-checks" /></span><span class="nav-label">{{ $isStaff ? 'Loan Review' : 'Borrow Equipment' }}</span></a>
         </div>
 
         @if ($isStaff)
         <div class="nav-group">
             <p class="nav-heading">Insights</p>
-            <a class="nav-link {{ $active === 'reports' ? 'is-current' : '' }}" href="{{ route('reports') }}" title="Insights and Reports" @if ($active === 'reports') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="chart" /></span><span class="nav-label">Insights &amp; Reports</span></a>
-            <a class="nav-link {{ $active === 'activity-logs' ? 'is-current' : '' }}" href="{{ route('activity-logs') }}" title="Activity Logs" @if ($active === 'activity-logs') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="activity" /></span><span class="nav-label">Activity Logs</span></a>
+            <a class="nav-link {{ $active === 'reports' ? 'is-current' : '' }}" href="{{ route('reports') }}" title="Insights and Reports" data-sidebar-tooltip="Insights &amp; Reports" @if ($active === 'reports') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="chart" /></span><span class="nav-label">Insights &amp; Reports</span></a>
+            <a class="nav-link {{ $active === 'activity-logs' ? 'is-current' : '' }}" href="{{ route('activity-logs') }}" title="Activity Logs" data-sidebar-tooltip="Activity Logs" @if ($active === 'activity-logs') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="activity" /></span><span class="nav-label">Activity Logs</span></a>
         </div>
         @endif
 
         <div class="nav-group">
             <p class="nav-heading">System</p>
-            <a class="nav-link {{ $active === 'settings' ? 'is-current' : '' }}" href="{{ route('settings') }}" title="Settings" @if ($active === 'settings') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="settings" /></span><span class="nav-label">Settings</span></a>
-            <a class="nav-link {{ $active === 'help' ? 'is-current' : '' }}" href="{{ route('help') }}" title="Help and Support" @if ($active === 'help') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="help" /></span><span class="nav-label">Help &amp; Support</span></a>
+            <a class="nav-link {{ $active === 'settings' ? 'is-current' : '' }}" href="{{ route('settings') }}" title="Settings" data-sidebar-tooltip="Settings" @if ($active === 'settings') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="settings" /></span><span class="nav-label">Settings</span></a>
+            <a class="nav-link {{ $active === 'help' ? 'is-current' : '' }}" href="{{ route('help') }}" title="Help and Support" data-sidebar-tooltip="Help &amp; Support" @if ($active === 'help') aria-current="page" @endif><span class="nav-glyph" aria-hidden="true"><x-icon name="help" /></span><span class="nav-label">Help &amp; Support</span></a>
         </div>
     </nav>
 
     <div class="sidebar-footer">
         @php($profileName = auth()->user()?->name ?? 'Guest')
-        <div class="profile-avatar" aria-hidden="true">{{ collect(preg_split('/\s+/', trim($profileName)))->filter()->map(fn ($part) => strtoupper(substr($part, 0, 1)))->take(2)->join('') }}</div>
+        <x-account-avatar :name="$profileName" />
         <div class="profile-copy"><span class="profile-name">{{ $profileName }}</span><span class="profile-role">{{ ucfirst(auth()->user()?->role ?? 'guest') }} account</span></div>
-        <div class="popover-anchor profile-menu-anchor">
-            <button class="profile-menu" id="profile-menu-toggle" type="button" aria-label="Open profile menu" title="Open profile menu" data-tooltip="Open profile menu" aria-controls="profile-menu" aria-expanded="false"><x-icon name="more-horizontal" /></button>
-            <div class="popover profile-popover" id="profile-menu" role="menu" hidden>
-                <button class="popover-link" role="menuitem" type="button" data-toast="Profile editing will be connected after sign-in is enabled."><x-icon name="user" /> Profile</button>
-                <button class="popover-link popover-link-danger" role="menuitem" type="button" data-toast="Logout will be connected after authentication is enabled."><x-icon name="log-out" /> Logout</button>
-            </div>
-        </div>
     </div>
 </aside>

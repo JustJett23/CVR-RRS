@@ -20,6 +20,14 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('ALTER TABLE reservations DROP CONSTRAINT reservations_valid_interval');
+            DB::statement('ALTER TABLE equipment DROP CONSTRAINT equipment_valid_quantities');
+            DB::statement('ALTER TABLE rooms DROP CONSTRAINT rooms_non_negative_capacity');
+
+            return;
+        }
+
         DB::statement('ALTER TABLE reservations DROP CHECK reservations_valid_interval');
         DB::statement('ALTER TABLE equipment DROP CHECK equipment_valid_quantities');
         DB::statement('ALTER TABLE rooms DROP CHECK rooms_non_negative_capacity');

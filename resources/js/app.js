@@ -4,6 +4,23 @@ const cveLoader = document.querySelector('[data-cve-loader]');
 const cveLoaderMessage = cveLoader?.querySelector('[data-cve-loader-message]');
 const landingOrbit = document.querySelector('.landing-orbit');
 
+async function readJsonResponse(response) {
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().includes('application/json')) {
+        await response.text();
+        if (response.redirected || response.status === 401 || response.status === 419) {
+            throw new Error('Your session may have expired. Sign in again, then retry.');
+        }
+        throw new Error('The server returned a page instead of data. Refresh and try again.');
+    }
+
+    try {
+        return await response.json();
+    } catch {
+        throw new Error('The server returned an unreadable response. Please retry.');
+    }
+}
+
 if (landingOrbit) {
     [
         ['.orbit-track-people', 20],
@@ -20,24 +37,95 @@ if (landingOrbit) {
 
 const chatbotForm = document.querySelector('[data-chatbot-form]');
 const chatbotMessages = document.querySelector('.chatbot-messages');
-chatbotForm?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const input = chatbotForm.elements.question;
-    const question = input.value.trim();
-    if (!question || !chatbotMessages) return;
-    const prompt = document.createElement('p');
-    prompt.className = 'chatbot-message is-user';
-    prompt.textContent = question;
-    const answer = document.createElement('p');
-    answer.className = 'chatbot-message';
-    answer.textContent = /reserve|book|schedule/i.test(question)
-        ? 'Open Reservations, choose a room and time, then submit the request. The server checks conflicts before saving.'
-        : /available|room|status/i.test(question)
-            ? 'Open Room Availability or Room Directory to see current database status by floor.'
-            : 'Try asking about room availability, schedule, or how to reserve a room.';
-    chatbotMessages.append(prompt, answer);
-    input.value = '';
-});
+if (chatbotForm && chatbotMessages) {
+    let requestPending = false;
+
+    function appendChatMessage(message, isUser = false) {
+        const element = document.createElement('p');
+        element.className = `chatbot-message${isUser ? ' is-user' : ''}`;
+        element.textContent = message;
+        chatbotMessages.append(element);
+        chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+    }
+
+    async function submitQuestion(question) {
+        if (requestPending) return;
+        const safeQuestion = question.trim().slice(0, 240);
+        if (!safeQuestion) return;
+        requestPending = true;
+        appendChatMessage(safeQuestion, true);
+
+        const submitButton = chatbotForm.querySelector('[type="submit"]');
+        const suggestions = [...document.querySelectorAll('[data-chatbot-suggestion]')];
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.querySelector('span').textContent = 'Thinking…';
+        }
+        suggestions.forEach((button) => { button.disabled = true; });
+
+        try {
+            const response = await fetch(chatbotForm.dataset.endpoint, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': chatbotForm.dataset.csrf,
+                },
+                body: JSON.stringify({ question: safeQuestion }),
+            });
+            const payload = await readJsonResponse(response);
+            if (!response.ok) {
+                throw new Error(payload.errors?.question?.[0] || payload.message || 'The assistant could not answer right now. Please try again.');
+            }
+            appendChatMessage(payload.answer);
+        } catch (error) {
+            appendChatMessage(error.message || 'The assistant is temporarily unavailable. Please try again shortly.');
+        } finally {
+            requestPending = false;
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.querySelector('span').textContent = 'Send';
+            }
+            suggestions.forEach((button) => { button.disabled = false; });
+        }
+    }
+
+    chatbotForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const input = chatbotForm.elements.question;
+        submitQuestion(input.value);
+        input.value = '';
+        input.focus();
+    });
+
+    document.querySelectorAll('[data-chatbot-suggestion]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const input = chatbotForm.elements.question;
+            input.value = button.dataset.chatbotSuggestion || '';
+            chatbotForm.requestSubmit();
+        });
+    });
+}
+
+const faqSearch = document.querySelector('[data-faq-search]');
+if (faqSearch) {
+    const faqItems = [...document.querySelectorAll('[data-faq-item]')];
+    const categories = [...document.querySelectorAll('[data-faq-category]')];
+    const emptyMessage = document.querySelector('[data-faq-empty]');
+    faqSearch.addEventListener('input', () => {
+        const query = faqSearch.value.trim().toLocaleLowerCase();
+        let visibleCount = 0;
+        faqItems.forEach((item) => {
+            const matches = item.textContent.toLocaleLowerCase().includes(query);
+            item.hidden = !matches;
+            if (matches) visibleCount += 1;
+        });
+        categories.forEach((category) => {
+            category.hidden = !category.querySelector('[data-faq-item]:not([hidden])');
+        });
+        if (emptyMessage) emptyMessage.hidden = visibleCount > 0;
+    });
+}
 
 if (viewer && mapStage && ['admin', 'creator'].includes(document.body.dataset.userRole)) {
     const fastNotice = document.createElement('p');
@@ -93,7 +181,8 @@ function startStudentFloorPlan() {
     let lastPointer = null;
     let zoom = 1;
     let viewpointMode = '3d';
-    const floorModels = JSON.parse(viewer.dataset.floorModels || '[]');
+    const floorNames = ['1F', '2F', '3F', '4F', 'RD'];
+    const floorLabels = ['FLOOR 1', 'FLOOR 2', 'FLOOR 3', 'FLOOR 4', 'ROOF'];
     const mapStageActions = document.querySelectorAll('[data-map-action]');
     const viewpointButton = document.querySelector('[data-map-action="viewpoint"]');
 
@@ -114,9 +203,7 @@ function startStudentFloorPlan() {
             const name = document.createElement('strong');
             name.textContent = room.name;
             const facts = document.createElement('small');
-            const floorNumber = floor === null ? room.floor + 1 : floor + 1;
-            const suffix = floorNumber === 2 ? 'nd' : (floorNumber === 3 ? 'rd' : 'th');
-            facts.textContent = `${floorNumber}${suffix} floor · ${room.capacity} seats`;
+            facts.textContent = `${room.floorName} · ${room.capacity > 0 ? `${room.capacity} seats` : 'Capacity not listed'}`;
             group.append(name, facts);
             const badge = document.createElement('span');
             badge.className = `status-badge ${room.status}`;
@@ -193,8 +280,8 @@ function startStudentFloorPlan() {
         document.querySelector('.availability-panel')?.setAttribute('aria-busy', 'true');
         try {
             const response = await fetch(url, { headers: { Accept: 'application/json' } });
-            if (!response.ok) throw new Error(`Floor data request failed with status ${response.status}.`);
-            const payload = await response.json();
+            const payload = await readJsonResponse(response);
+            if (!response.ok) throw new Error(payload.message || `Floor data request failed with status ${response.status}.`);
             renderRoomRows(payload.data || [], floor === 'all' ? null : Number(floor));
             renderUpcoming(payload.upcoming || []);
             if (roomLoadMessage) roomLoadMessage.textContent = `${(payload.data || []).length} rooms synchronized from the database.`;
@@ -247,8 +334,15 @@ function startStudentFloorPlan() {
             candidate.visible = isSelected;
             setMaterialHighlight(candidate, false);
         });
-        if (floorLabel) floorLabel.textContent = index === 3 ? 'ROOF' : `FLOOR ${index + 2}`;
+        if (floorLabel) floorLabel.textContent = floorLabels[index] || 'FLOOR';
         floorBack?.removeAttribute('hidden');
+    }
+
+    function selectedModelFloor(value) {
+        if (value === 'floor-1f') return 0;
+        if (value === 'roof') return 4;
+        const floorNumber = Number(value);
+        return Number.isInteger(floorNumber) && floorNumber >= 1 && floorNumber <= 4 ? floorNumber : null;
     }
 
     function getFloorGroup(object) {
@@ -326,9 +420,60 @@ function startStudentFloorPlan() {
         });
     });
     updateViewpointLabel();
-    Promise.all(floorModels.map((url) => loader.loadAsync(url))).then((assets) => {
+    async function loadFloorPlanAsset() {
+        const modelUrl = new URL(viewer.dataset.campusModel, document.baseURI);
+        const cacheName = 'cve-floor-plan-model-v1';
+        let modelCache;
+
+        try {
+            modelCache = await window.caches?.open(cacheName);
+            const cachedResponse = await modelCache?.match(modelUrl.href);
+            if (cachedResponse) {
+                try {
+                    return await loader.parseAsync(await cachedResponse.arrayBuffer(), new URL('.', modelUrl).href);
+                } catch {
+                    await modelCache.delete(modelUrl.href);
+                }
+            }
+        } catch {
+            modelCache = null;
+        }
+
+        const response = await fetch(modelUrl.href, { cache: 'force-cache' });
+        if (!response.ok) throw new Error(`3D model request failed (${response.status}).`);
+        const modelData = await response.arrayBuffer();
+        try {
+            modelCache ??= await window.caches?.open(cacheName);
+            await modelCache?.put(modelUrl.href, new Response(modelData.slice(0), {
+                headers: { 'Content-Type': response.headers.get('content-type') || 'model/gltf-binary' },
+            }));
+        } catch {
+            // Continue even when persistent browser caching is unavailable.
+        }
+
+        return loader.parseAsync(modelData, new URL('.', modelUrl).href);
+    }
+
+    loadFloorPlanAsset().then((asset) => {
         modelRoot.clear();
-        floorGroups = assets.map((asset) => asset.scene);
+        const source = asset.scene;
+        source.updateMatrixWorld(true);
+        floorGroups = floorNames.map((name) => {
+            const group = new THREE.Group();
+            group.name = `Floor ${name}`;
+            group.userData.floorName = name;
+            return group;
+        });
+        const floorPattern = /^(?:NPC[_ -])?(1F|2F|3F|4F|RD|RF|ROOF)(?=[_ -]|$)/i;
+        [...source.children].forEach((node) => {
+            const match = node.name.match(floorPattern);
+            const matchedFloor = match?.[1].toUpperCase();
+            let floorIndex = matchedFloor ? floorNames.indexOf(['RF', 'ROOF'].includes(matchedFloor) ? 'RD' : matchedFloor) : -1;
+            if (floorIndex < 0) {
+                floorIndex = /basketball key marking/i.test(node.name) ? 3 : 1;
+            }
+            floorGroups[floorIndex].add(node);
+        });
         floorGroups.forEach((group) => modelRoot.add(group));
         const box = new THREE.Box3().setFromObject(modelRoot);
         const center = box.getCenter(new THREE.Vector3());
@@ -346,8 +491,8 @@ function startStudentFloorPlan() {
         camera.far = distance * 100;
         camera.updateProjectionMatrix();
         const selectedValue = floorSelect?.value || 'all';
-        const selectedIndex = Math.max(0, Number(selectedValue) - 1);
-        if (selectedValue !== 'all' && floorGroups[selectedIndex]) {
+        const selectedIndex = selectedModelFloor(selectedValue);
+        if (selectedValue !== 'all' && selectedIndex !== null && floorGroups[selectedIndex]) {
             focusFloor(floorGroups[selectedIndex], selectedIndex);
         } else {
             showAllFloors();
@@ -359,7 +504,10 @@ function startStudentFloorPlan() {
         mapStage.append(message);
     }).finally(() => {
         hideCveLoader();
-        loadFloorData(floorSelect?.value || 'all');
+        const selectedDataFloor = floorSelect?.value || 'all';
+        if (['all', '1', '2', '3', '4'].includes(selectedDataFloor)) {
+            loadFloorData(selectedDataFloor);
+        }
     });
 
     viewer.addEventListener('pointerdown', (event) => { dragging = true; lastPointer = { x: event.clientX, y: event.clientY }; viewer.setPointerCapture(event.pointerId); });
@@ -414,10 +562,12 @@ function startStudentFloorPlan() {
     });
     document.querySelector('#close-room-detail')?.addEventListener('click', () => { if (roomDetail) roomDetail.hidden = true; });
     floorSelect?.addEventListener('change', () => {
-        const selected = Math.max(0, Number(floorSelect.value) - 1);
+        const selected = selectedModelFloor(floorSelect.value);
         if (floorSelect.value === 'all') showAllFloors();
-        else if (floorGroups[selected]) focusFloor(floorGroups[selected], selected);
-        loadFloorData(floorSelect.value);
+        else if (selected !== null && floorGroups[selected]) focusFloor(floorGroups[selected], selected);
+        if (['all', '1', '2', '3', '4'].includes(floorSelect.value)) {
+            loadFloorData(floorSelect.value);
+        }
     });
     new ResizeObserver(resize).observe(viewer);
     resize();
@@ -497,6 +647,29 @@ document.addEventListener('click', (event) => {
 
 const reservationForm = document.querySelector('[data-reservation-form]');
 
+if (reservationForm) {
+    const startsAtInput = reservationForm.elements.starts_at;
+    const endsAtInput = reservationForm.elements.ends_at;
+    const durationInput = reservationForm.elements.duration_minutes;
+
+    function updateReservationEndTime() {
+        if (!startsAtInput?.value || !endsAtInput || !durationInput) return;
+
+        const end = new Date(startsAtInput.value);
+        end.setMinutes(end.getMinutes() + Number(durationInput.value || reservationForm.dataset.defaultDuration || 60));
+        const localEnd = new Date(end.getTime() - end.getTimezoneOffset() * 60000);
+        endsAtInput.value = localEnd.toISOString().slice(0, 16);
+    }
+
+    startsAtInput?.addEventListener('input', () => {
+        updateReservationEndTime();
+    });
+
+    durationInput?.addEventListener('change', updateReservationEndTime);
+    reservationForm.addEventListener('reset', () => window.setTimeout(updateReservationEndTime, 0));
+    updateReservationEndTime();
+}
+
 const organizationScanner = document.querySelector('[data-scanner]');
 
 if (organizationScanner) {
@@ -506,6 +679,7 @@ if (organizationScanner) {
     const startButton = organizationScanner.querySelector('[data-scanner-start]');
     const uploadInput = organizationScanner.querySelector('[data-scanner-upload]');
     const nextButton = organizationScanner.querySelector('[data-scanner-next]');
+    const manualFallbackButton = organizationScanner.querySelector('[data-scanner-manual-fallback]');
     const input = organizationScanner.querySelector('[data-scanner-input]');
     const qualityLight = organizationScanner.querySelector('[data-quality-light]');
     const qualityFocus = organizationScanner.querySelector('[data-quality-focus]');
@@ -533,6 +707,7 @@ if (organizationScanner) {
     const validationMessage = organizationScanner.querySelector('[data-scanner-validation-message]');
     const emailRequirement = organizationScanner.querySelector('[data-scanner-email-requirement]');
     const loginForm = organizationScanner.closest('form');
+    const loginMessage = loginForm?.querySelector('[data-login-message]');
     const emailLoginToggle = loginForm?.querySelector('[data-email-login-toggle]');
     const emailLoginPanel = loginForm?.querySelector('[data-email-login-panel]');
     const emailSubmit = loginForm?.querySelector('[data-email-submit]');
@@ -540,6 +715,7 @@ if (organizationScanner) {
     const authWelcome = authLayout?.querySelector('.auth-welcome');
     const scannerEmailInput = organizationScanner.querySelector('[data-scanner-email]');
     const emailInput = emailLoginPanel?.querySelector('input[name="email"]');
+    const emailRememberInput = emailLoginPanel?.querySelector('input[name="remember"]');
     const passwordInput = loginForm?.querySelector('input[name="password"]');
     let mediaStream = null;
     let barcodeDetector = null;
@@ -551,13 +727,30 @@ if (organizationScanner) {
     let scanSide = 'front';
     let scanComplete = false;
     let frontScanDetected = false;
+    let frontScanAttempted = false;
     let backScanDetected = false;
+    let backScanAttempted = false;
     let scannerFailed = false;
+    let manualFallbackEnabled = false;
     let emailLoginMode = false;
+    let existingAccountMatched = false;
+    let savedContactAutofilled = false;
+    let savedEmergencyAutofilled = false;
+    let lastIdentityLookupKey = '';
+    let identityLookupSequence = 0;
+    let identityLookupTimer = null;
 
-    function setExtractedFieldsEditable(editable) {
-        [nameInput, courseInput, studentNumberInput, contactInput, emergencyInput].forEach((field) => {
-            field?.toggleAttribute('readonly', !editable);
+    function updateExtractedFieldEditability() {
+        const isManualEntry = manualFallbackEnabled;
+        const identityIsReadOnly = frontScanDetected && !isManualEntry;
+        const contactIsReadOnly = (backScanDetected || savedContactAutofilled) && !isManualEntry;
+        const emergencyIsReadOnly = (backScanDetected || savedEmergencyAutofilled) && !isManualEntry;
+
+        [nameInput, courseInput, studentNumberInput].forEach((field) => {
+            field?.toggleAttribute('readonly', identityIsReadOnly);
+        });
+        [contactInput, emergencyInput].forEach((field) => {
+            field?.toggleAttribute('readonly', field === contactInput ? contactIsReadOnly : emergencyIsReadOnly);
         });
     }
 
@@ -567,8 +760,116 @@ if (organizationScanner) {
         validationMessage.textContent = message;
     }
 
+    function setLoginMessage(message) {
+        if (!loginMessage) return;
+        loginMessage.textContent = message;
+        loginMessage.hidden = !message;
+    }
+
+    function redirectToDashboard(redirectUrl = null) {
+        const fallbackUrl = loginForm.dataset.dashboardUrl || '/dashboard';
+        const destination = new URL(redirectUrl || fallbackUrl, window.location.origin);
+        const safeDestination = destination.origin === window.location.origin
+            ? destination
+            : new URL(fallbackUrl, window.location.origin);
+        window.location.assign(`${safeDestination.pathname}${safeDestination.search}${safeDestination.hash}`);
+    }
+
+    async function submitEmailLogin() {
+        const formData = new FormData(loginForm);
+        formData.delete('remember');
+        if (emailRememberInput?.checked) formData.append('remember', '1');
+
+        emailSubmit.disabled = true;
+        setLoginMessage('');
+        showCveLoader('Signing in to your NPC account…');
+
+        let timeoutId;
+
+        try {
+            const controller = new AbortController();
+            timeoutId = window.setTimeout(() => controller.abort(), 20000);
+            const response = await fetch(loginForm.getAttribute('action') || '/login', {
+                method: 'POST',
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: formData,
+                signal: controller.signal,
+            });
+            window.clearTimeout(timeoutId);
+
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const validationErrors = Object.values(payload.errors || {}).flat().join(' ');
+                const fallbackMessage = response.status === 419
+                    ? 'Your sign-in page expired. Reload it and try again.'
+                    : response.status === 429
+                        ? 'Too many attempts. Wait a minute, then try again.'
+                        : response.status >= 500
+                            ? 'Sign-in is temporarily unavailable. Please try again shortly.'
+                            : 'The sign-in details could not be verified.';
+                throw new Error(payload.message || validationErrors || fallbackMessage);
+            }
+
+            if (payload.authenticated !== true) {
+                throw new Error('Sign-in could not be completed. Please try again.');
+            }
+
+            redirectToDashboard(payload.redirect);
+        } catch (error) {
+            window.clearTimeout(timeoutId);
+            const message = error.name === 'AbortError'
+                ? 'Sign-in took too long. Please retry.'
+                : error instanceof TypeError
+                    ? 'The server could not be reached. Check your connection and retry.'
+                    : error.message;
+            setLoginMessage(message);
+            emailSubmit.disabled = false;
+            hideCveLoader();
+        }
+    }
+
+    function normalizeScannerError(error, stage = 'ocr') {
+        const name = String(error?.name || '');
+        const message = String(error?.message || error || '').toLowerCase();
+
+        if (stage === 'camera') {
+            if (['NotAllowedError', 'SecurityError'].includes(name)) {
+                return { code: 'CAMERA_PERMISSION_DENIED', message: 'Camera permission was denied. Upload a photo or enter the missing details manually.' };
+            }
+            if (['NotFoundError', 'DevicesNotFoundError'].includes(name)) {
+                return { code: 'CAMERA_NOT_FOUND', message: 'No camera was found. Upload a photo or enter the missing details manually.' };
+            }
+            if (['NotReadableError', 'TrackStartError'].includes(name)) {
+                return { code: 'CAMERA_BUSY', message: 'The camera is busy or unavailable. Close other camera apps, then try again or upload a photo.' };
+            }
+
+            return { code: 'CAMERA_START_FAILED', message: 'The camera could not start. Upload a photo or enter the missing details manually.' };
+        }
+
+        if (/timeout|took too long|timed out/.test(message)) {
+            return { code: 'OCR_TIMEOUT', message: 'The text reader took too long. Try a smaller, clearer photo or enter the missing details manually.' };
+        }
+        if (/fetch|network|traineddata|wasm|worker|language data|404|load failed/.test(message)) {
+            return { code: 'OCR_ASSET_UNAVAILABLE', message: 'The text reader could not load. Check your connection, retry, or enter the missing details manually.' };
+        }
+        if (/decode|invalid image|unsupported image|image format|blob/.test(message) || name === 'EncodingError') {
+            return { code: 'INVALID_IMAGE', message: 'This image could not be opened. Choose a JPG, PNG, or WebP photo and try again.' };
+        }
+        if (/canvas|security|tainted|image dimensions/.test(message)) {
+            return { code: 'IMAGE_PROCESSING_FAILED', message: 'The image could not be prepared for reading. Choose a clear photo or enter the missing details manually.' };
+        }
+
+        return { code: 'OCR_FAILED', message: 'The ID could not be read. Try a clear, well-lit photo or enter the missing details manually.' };
+    }
+
     function scannerFieldsComplete() {
         return [nameInput, courseInput, studentNumberInput, contactInput, emergencyInput].every((field) => field?.value.trim());
+    }
+
+    function hasManuallyCompletedBackDetails() {
+        return (manualFallbackEnabled || backScanAttempted) && Boolean(contactInput?.value.trim() && emergencyInput?.value.trim());
     }
 
     function updateEmailAccess() {
@@ -576,14 +877,25 @@ if (organizationScanner) {
         emailLoginPanel?.toggleAttribute('hidden', !shouldShowCredentials);
         emailSubmit?.toggleAttribute('hidden', !emailLoginMode);
         if (emailInput) emailInput.required = emailLoginMode;
-        if (scannerEmailInput) scannerEmailInput.required = scannerFailed;
+        if (scannerEmailInput) scannerEmailInput.required = scannerFailed && !existingAccountMatched;
         if (passwordInput) passwordInput.required = emailLoginMode;
-        emailRequirement?.toggleAttribute('hidden', !scannerFailed);
+        emailRequirement?.toggleAttribute('hidden', !scannerFailed || existingAccountMatched);
     }
 
     function updateValidationButton() {
         const fieldsFilled = scannerFieldsComplete();
-        if (validateButton) validateButton.disabled = !(scanComplete && frontScanDetected && backScanDetected && fieldsFilled);
+        const backDetailsComplete = backScanDetected || hasManuallyCompletedBackDetails();
+        scanComplete = manualFallbackEnabled || (frontScanDetected && (backDetailsComplete || existingAccountMatched));
+        const institutionalEmailFilled = Boolean(scannerEmailInput?.value.trim() || emailInput?.value.trim());
+        if (validateButton) {
+            validateButton.disabled = !(scanComplete && fieldsFilled && (existingAccountMatched || !scannerFailed || institutionalEmailFilled));
+            const label = validateButton.firstChild;
+            if (label?.nodeType === Node.TEXT_NODE) label.textContent = existingAccountMatched ? 'Continue to sign in ' : 'Validate extracted details ';
+        }
+        if (manualFallbackButton) manualFallbackButton.hidden = manualFallbackEnabled;
+        if (!manualFallbackEnabled && hasManuallyCompletedBackDetails() && !backScanDetected && resultsNote) {
+            resultsNote.textContent = 'Back image captured. Review the contact details you entered, then continue with your NPC email.';
+        }
         if (authLayout && authWelcome && results && !results.hidden) {
             authLayout.style.setProperty('--scanner-results-top', `${authWelcome.offsetTop + authWelcome.offsetHeight + 24}px`);
         }
@@ -735,10 +1047,11 @@ if (organizationScanner) {
         const requiredChecks = isFront
             ? relevantChecks.filter((check) => ['Student name', 'Course / program', 'Student number'].includes(check.label))
             : relevantChecks.filter((check) => ['Contact number', 'Emergency contact section', 'Validation or signature area'].includes(check.label));
-        const sideValid = requiredChecks.every((check) => check.valid);
+        const missingChecks = requiredChecks.filter((check) => !check.valid).map((check) => check.label.toLowerCase());
+        const sideValid = missingChecks.length === 0;
         resultsNote.textContent = sideValid
             ? `${isFront ? 'Front' : 'Back'} side details found. Confirm the extracted values.`
-            : `Scanning failed: ${isFront ? 'full name, course, and student number' : 'contact number, emergency contact, and validation'} must be detected or entered manually.`;
+            : `${isFront ? 'Front' : 'Back'} scan could not confirm ${missingChecks.join(', ')}. Review the image and enter any missing values manually.`;
         return sideValid;
     }
 
@@ -753,9 +1066,13 @@ if (organizationScanner) {
                     if (!isOcrProcessing || !status) return;
 
                     const percentage = Number.isFinite(progress) ? ` ${Math.round(progress * 100)}%` : '';
-                    status.textContent = workerStatus === 'recognizing text'
+                    const progressMessage = workerStatus === 'recognizing text'
                         ? `Reading ID text${percentage}…`
                         : 'Preparing the text reader…';
+                    status.textContent = progressMessage;
+                    if (cveLoader && !cveLoader.hidden && cveLoaderMessage) {
+                        cveLoaderMessage.textContent = progressMessage;
+                    }
                 },
             }));
         }
@@ -766,39 +1083,49 @@ if (organizationScanner) {
     async function prepareOcrImage(source) {
         let drawable = source;
         let objectUrl = null;
-        if (source instanceof Blob) {
-            objectUrl = URL.createObjectURL(source);
-            drawable = new Image();
-            drawable.src = objectUrl;
-            await drawable.decode();
-        }
+        try {
+            if (source instanceof Blob) {
+                objectUrl = URL.createObjectURL(source);
+                drawable = new Image();
+                drawable.src = objectUrl;
+                await drawable.decode();
+            }
 
-        const width = drawable.videoWidth || drawable.naturalWidth || drawable.width;
-        const height = drawable.videoHeight || drawable.naturalHeight || drawable.height;
-        const longestSide = Math.max(width, height, 1);
-        const scale = Math.min(1.8, Math.max(0.7, 1800 / longestSide));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(width * scale);
-        canvas.height = Math.round(height * scale);
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'high';
-        context.filter = 'grayscale(1) contrast(1.35) brightness(1.06)';
-        context.drawImage(drawable, 0, 0, canvas.width, canvas.height);
-        context.filter = 'none';
-        if (objectUrl) URL.revokeObjectURL(objectUrl);
-        return canvas;
+            const width = drawable.videoWidth || drawable.naturalWidth || drawable.width;
+            const height = drawable.videoHeight || drawable.naturalHeight || drawable.height;
+            if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+                throw new Error('Invalid image dimensions.');
+            }
+
+            const longestSide = Math.max(width, height);
+            const scale = Math.min(1.8, Math.max(0.7, 1800 / longestSide));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(width * scale);
+            canvas.height = Math.round(height * scale);
+            const context = canvas.getContext('2d', { willReadFrequently: true });
+            if (!context) throw new Error('Canvas image processing is unavailable.');
+            context.imageSmoothingEnabled = true;
+            context.imageSmoothingQuality = 'high';
+            context.filter = 'grayscale(1) contrast(1.35) brightness(1.06)';
+            context.drawImage(drawable, 0, 0, canvas.width, canvas.height);
+            context.filter = 'none';
+            return canvas;
+        } finally {
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        }
     }
 
-    function cropOcrRegion(canvas, top, height) {
+    function cropOcrRegion(canvas, top, height, left = 0, width = 1) {
         const crop = document.createElement('canvas');
-        crop.width = canvas.width;
+        crop.width = Math.max(1, Math.round(canvas.width * width));
         crop.height = Math.max(1, Math.round(canvas.height * height));
-        crop.getContext('2d').drawImage(
+        const context = crop.getContext('2d');
+        if (!context) throw new Error('Canvas image processing is unavailable.');
+        context.drawImage(
             canvas,
-            0,
+            Math.round(canvas.width * left),
             Math.round(canvas.height * top),
-            canvas.width,
+            crop.width,
             crop.height,
             0,
             0,
@@ -809,22 +1136,12 @@ if (organizationScanner) {
     }
 
     function formatDisplayName(value) {
-        const normalized = value
+        return value
             .toLowerCase()
             .replace(/\b([a-z])\./g, (_, initial) => `${initial.toUpperCase()}.`)
             .replace(/(^|[\s'-])([a-z])/g, (_, prefix, initial) => `${prefix}${initial.toUpperCase()}`)
             .replace(/\s+/g, ' ')
             .trim();
-
-        if (/^jet\s*rigor(?:\s+b\.)?\s*\.?\s*carlos$/i.test(normalized) || /^jetrigor(?:\s+b\.)?\s*\.?\s*carlos$/i.test(normalized)) {
-            return normalized
-                .replace(/^jetrigor/i, 'Jet Rigor')
-                .replace(/^Jet rigor/i, 'Jet Rigor')
-                .replace(/\s+\./, ' ')
-                .replace(/(^|[\s'-])([a-z])/g, (_, prefix, initial) => `${prefix}${initial.toUpperCase()}`);
-        }
-
-        return normalized;
     }
 
     function normalizeStudentNumber(value) {
@@ -832,19 +1149,61 @@ if (organizationScanner) {
             .toUpperCase()
             .replace(/[OQ]/g, '0')
             .replace(/[IL]/g, '1')
-            .replace(/[SR]/g, '5')
+            .replace(/S/g, '5')
             .replace(/[BZ]/g, (letter) => letter === 'B' ? '8' : '2')
             .replace(/[^0-9]/g, '');
-        return normalized === '250354' ? '250154' : normalized;
+        return normalized;
     }
 
     function normalizeOcrName(value) {
         return String(value || '')
             .replace(/\b([58])\./g, 'B.')
+            .replace(/^(?:FULL\s+NAME|NAME)\s*[:.-]?\s*/i, '')
             .replace(/^[^A-Za-z]+/, '')
-            .replace(/^[A-Z]\s+(?=[A-Z]{2,}\s)/, '')
+            .replace(/^[A-Z]\s+(?=[A-Z][a-z]+\s)/, '')
             .replace(/\s+/g, ' ')
             .trim();
+    }
+
+    function extractLikelyPersonalName(lines) {
+        const candidates = new Map();
+        const addCandidate = (value, isWholeLine = false) => {
+            const normalized = normalizeOcrName(value);
+            if (!isLikelyPersonalName(normalized)) return;
+            const candidate = candidates.get(normalized) || { value: normalized, occurrences: 0, wholeLine: false };
+            candidate.occurrences += 1;
+            candidate.wholeLine = candidate.wholeLine || isWholeLine;
+            candidates.set(normalized, candidate);
+        };
+
+        lines.forEach((line) => {
+            const normalizedLine = normalizeOcrName(line);
+            const words = normalizedLine.split(/\s+/).filter(Boolean);
+            addCandidate(normalizedLine, true);
+
+            for (let start = 0; start < words.length; start += 1) {
+                for (let length = 2; length <= Math.min(5, words.length - start); length += 1) {
+                    addCandidate(words.slice(start, start + length).join(' '));
+                }
+            }
+        });
+
+        const rankedCandidates = [...candidates.values()].map((candidate) => {
+            const words = candidate.value.split(/\s+/);
+            const hasMiddleInitial = words.slice(1, -1).some((word) => /^[A-Z]\.?$/i.test(word));
+            const nameLengthScore = words.length === 4 ? 40 : words.length === 3 ? 32 : words.length === 2 ? 24 : 0;
+            const score = nameLengthScore
+                + (hasMiddleInitial ? 14 : 0)
+                + (candidate.wholeLine ? 4 : 0)
+                + Math.min(candidate.occurrences - 1, 3) * 3;
+
+            return { ...candidate, score };
+        });
+
+        const preferredCandidates = rankedCandidates.filter((candidate) => candidate.score > 0);
+        const candidatesToRank = preferredCandidates.length > 0 ? preferredCandidates : rankedCandidates;
+
+        return candidatesToRank.sort((first, second) => second.score - first.score)[0]?.value || '';
     }
 
     function isValidStudentNumber(value) {
@@ -852,19 +1211,33 @@ if (organizationScanner) {
     }
 
     function extractStudentNumber(value) {
-        const normalized = normalizeStudentNumber(value);
-        return normalized.match(/25\d{4}/)?.[0] || normalized;
+        const text = String(value || '').toUpperCase();
+        const candidatesFrom = (candidateText) => [...candidateText.matchAll(/[0-9OQILSBZ](?:[\s-]*[0-9OQILSBZ]){5}/g)]
+            .map((match) => normalizeStudentNumber(match[0]))
+            .filter((candidate) => /^25\d{4}$/.test(candidate));
+        const labeledSections = [...text.matchAll(/(?:STUDENT\s*(?:NO\.?|NUMBER)|STUD\.?\s*NO\.?)[^\r\n]{0,40}(?:\r?\n[^\r\n]{0,40})?/gi)]
+            .flatMap((match) => candidatesFrom(match[0]));
+
+        if (labeledSections.length > 0) {
+            return labeledSections[0];
+        }
+
+        const unlabelledCandidates = [...new Set(candidatesFrom(text))];
+
+        return unlabelledCandidates.length === 1 ? unlabelledCandidates[0] : '';
     }
 
     function isLikelyPersonalName(value) {
         const normalized = String(value || '').replace(/\s+/g, ' ').trim().toUpperCase();
-        const blockedTerms = /(?:INTEGRATED|COMPUTER|SOCIETY|ORGANIZATION|NAVOTAS|POLYTECHNIC|COLLEGE|NPC|STUD(?:ENT)?|CONTACT|VALIDATION|SIGNATURE|ASSOCIATE|BACHELOR|COURSE|PROGRAM|SYSTEM|INFORMATION|CITY|KAUNLARAN|ADDRESS|STREET|PHILIPPINES|MANILA)/;
+        const blockedTerms = /(?:\bFULL\s+NAME\b|\bNAME\b|\bSURNAME\b|\bGIVEN\s+NAME\b|\bOV\b|INTEGRATED|COMPUTER|SOCIETY|ORGANIZATION|NAVOTAS|POLYTECHNIC|COLLEGE|NPC|STUD(?:ENT)?|CONTACT|VALIDATION|SIGNATURE|ASSOCIATE|BACHELOR|COURSE|PROGRAM|SYSTEM|INFORMATION|CITY|KAUNLARAN|ADDRESS|STREET|PHILIPPINES|MANILA)/;
         const words = normalized.replace(/[^A-Z .'-]/g, ' ').split(/\s+/).filter(Boolean);
         const fullNameWords = words.filter((word) => word.replace(/\./g, '').length >= 3);
 
         return /^[A-Z][A-Z .'-]{4,}$/.test(normalized)
             && words.length >= 2
             && words.length <= 6
+            && words[0].replace(/\./g, '').length >= 2
+            && words[words.length - 1].replace(/\./g, '').length >= 2
             && fullNameWords.length >= 2
             && words.join('').length >= 6
             && !blockedTerms.test(normalized);
@@ -879,43 +1252,39 @@ if (organizationScanner) {
         return candidate.replace(/\s+/g, ' ').trim();
     }
 
-    function extractBackContacts(text) {
-        const normalizedText = text.replace(/\r/g, '');
-        const phonePattern = /(?:\+63\s*9\d{9}|09\d{9})/g;
-        const normalizePhone = (value) => {
-            const compact = value
-                .replace(/[Oo]/g, '0')
-                .replace(/[Il]/g, '1')
-                .replace(/[Ss]/g, '5')
-                .replace(/[Bb]/g, '8')
-                .replace(/[^0-9+]/g, '');
-            return compact.match(/(?:\+639\d{9}|09\d{9})/)?.[0] || '';
-        };
+    function extractContactDetails(text) {
+        const normalizedText = String(text || '').replace(/\r/g, '');
+        const phonePattern = /(?:^|[^\d])((?:(?:\+?\s*63|00\s*63)[\s().,:/\\|\u2010-\u2014-]*)?0?9(?:[\s().,:/\\|\u2010-\u2014-]*\d){9})(?![\s().,:/\\|\u2010-\u2014-]*\d)/g;
+        const normalizePhones = (value) => [...String(value || '')
+            .replace(/\r/g, '')
+            .replace(/[OoQq]/g, '0')
+            .replace(/[IlL]/g, '1')
+            .replace(/[Ss]/g, '5')
+            .replace(/[Bb]/g, '8')
+            .replace(/[Zz]/g, '2')
+            .matchAll(phonePattern)]
+            .map((match) => {
+                let digits = match[1].replace(/\D/g, '');
+                if (digits.startsWith('0063')) digits = digits.slice(2);
+                if (digits.startsWith('63')) digits = `0${digits.slice(2)}`;
+                else if (digits.startsWith('9')) digits = `0${digits}`;
+
+                return /^09\d{9}$/.test(digits) ? digits : '';
+            })
+            .filter(Boolean);
         const lines = normalizedText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        const emergencyLineIndex = lines.findIndex((line) => /in\s+case\s+of\s+emergency|please\s+notify/i.test(line));
-        const contactLabelIndex = lines.findIndex((line) => /(?:contact\s*(?:no\.?|number)|mobile|phone)/i.test(line)
+        const emergencyLineIndex = lines.findIndex((line) => /in\s+case\s+of\s+emergency|emergency\s*(?:contact|person)?|please\s+notify/i.test(line));
+        const contactLabelIndex = lines.findIndex((line) => /(?:contact\s*(?:no\.?|number|#)|mobile|cell(?:ular)?|phone|telephone|\btel\b)/i.test(line)
             && !/emergency|notify|contact\s+person/i.test(line));
-        let contact = '';
-        if (contactLabelIndex >= 0) {
-            const contactWindow = lines.slice(contactLabelIndex, contactLabelIndex + 4).join(' ');
-            contact = normalizePhone(contactWindow);
-        }
-        if (!contact) {
-            contact = normalizePhone(lines.join(' '));
-        }
-        const emergencyStart = emergencyLineIndex >= 0
-            ? normalizedText.indexOf(lines[emergencyLineIndex])
-            : -1;
-        const afterEmergency = emergencyStart >= 0 ? normalizedText.slice(emergencyStart) : '';
-        const emergencyPhone = normalizePhone(afterEmergency);
-        if (contact && emergencyPhone && contact === emergencyPhone) {
-            contact = lines
-                .map((line) => normalizePhone(line))
-                .find((candidate) => candidate && candidate !== emergencyPhone) || '';
-        }
+        const afterEmergency = emergencyLineIndex >= 0 ? lines.slice(emergencyLineIndex).join('\n') : '';
+        const emergencyPhone = normalizePhones(afterEmergency)[0] || '';
+        const labeledContactText = contactLabelIndex >= 0 ? lines.slice(contactLabelIndex, contactLabelIndex + 4).join('\n') : '';
+        const allPhoneCandidates = normalizePhones(normalizedText);
+        const contactCandidates = [...normalizePhones(labeledContactText), ...allPhoneCandidates];
+        const contact = [...new Set(contactCandidates)].find((candidate) => candidate !== emergencyPhone) || '';
         const emergencyLines = afterEmergency
             .replace(phonePattern, ' ')
-            .replace(/in\s+case\s+of\s+emergency|please\s+notify|contact\s+person|contact\s*(?:no\.?|number)/gi, ' ')
+            .replace(/in\s+case\s+of\s+emergency|emergency\s*(?:contact|person)?|please\s+notify|contact\s+person/gi, ' ')
             .split(/\r?\n/)
             .map((line) => line.replace(/[|:]/g, ' ').replace(/\s+/g, ' ').trim())
             .filter(Boolean);
@@ -932,15 +1301,14 @@ if (organizationScanner) {
 
     function previewRecognizedFields(text, side) {
         const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        const nameCandidates = lines.flatMap((line, index) => [line, `${line} ${lines[index + 1] || ''}`]);
-        const extractedName = nameCandidates.map(normalizeOcrName).find(isLikelyPersonalName) || '';
+        const extractedName = extractLikelyPersonalName(lines);
         const course = normalizeCourse(
             readField(lines, /^(?:course|program)\s*[:.-]?\s*/i)
                 || lines.find((line) => /associate|bachelor|computer|information\s+system/i.test(line) && line.length < 100),
             lines,
         );
         const studentNumber = extractStudentNumber(text);
-        const contacts = side === 'back' ? extractBackContacts(text) : { contact: '', emergency: '' };
+        const contacts = extractContactDetails(text);
         const validation = /validation|1st\s*sem|2nd\s*sem|signature/i.test(text);
 
         if (side === 'front') {
@@ -948,31 +1316,92 @@ if (organizationScanner) {
             if (course && courseInput) courseInput.value = course;
             if (isValidStudentNumber(studentNumber) && studentNumberInput) studentNumberInput.value = studentNumber;
         } else {
-            if (contacts.contact && contactInput) contactInput.value = contacts.contact;
-            if (contacts.emergency && emergencyInput) emergencyInput.value = contacts.emergency;
         }
+        if (contacts.contact && contactInput && (!existingAccountMatched || !contactInput.value.trim())) contactInput.value = contacts.contact;
+        if (side === 'back' && contacts.emergency && emergencyInput && (!existingAccountMatched || !emergencyInput.value.trim())) emergencyInput.value = contacts.emergency;
+        const resolvedContact = contacts.contact || (side === 'back' && existingAccountMatched ? contactInput?.value.trim() : '');
+        const resolvedEmergency = contacts.emergency || (side === 'back' && existingAccountMatched ? emergencyInput?.value.trim() : '');
 
         results.hidden = false;
         resultsNote.textContent = 'Live preview · checking the extracted details against the ID…';
 
         return side === 'front'
             ? { complete: Boolean(extractedName && course && isValidStudentNumber(studentNumber)), name: Boolean(extractedName), studentNumber: isValidStudentNumber(studentNumber) }
-            : { complete: Boolean(contacts.contact && contacts.emergency && validation), contact: Boolean(contacts.contact), emergency: Boolean(contacts.emergency), validation };
+            : { complete: Boolean(resolvedContact && resolvedEmergency && validation), contact: Boolean(resolvedContact), emergency: Boolean(resolvedEmergency), validation };
+    }
+
+    async function lookupExistingStudent() {
+        const scannedName = nameInput?.value.trim() || '';
+        const scannedCourse = courseInput?.value.trim() || '';
+        const scannedStudentNumber = normalizeStudentNumber(studentNumberInput?.value || '');
+        if (!scannedName || !scannedCourse || !isValidStudentNumber(scannedStudentNumber)) return;
+
+        const lookupKey = [scannedName, scannedCourse, scannedStudentNumber].join('|');
+        if (lookupKey === lastIdentityLookupKey) return;
+        lastIdentityLookupKey = lookupKey;
+        const lookupSequence = ++identityLookupSequence;
+        existingAccountMatched = false;
+        updateExtractedFieldEditability();
+        updateValidationButton();
+
+        try {
+            const response = await fetch(loginForm.dataset.lookupUrl || '/login/lookup-id', {
+                method: 'POST',
+                credentials: 'same-origin',
+                cache: 'no-store',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': loginForm.querySelector('input[name="_token"]').value },
+                body: JSON.stringify({ scanned_name: scannedName, scanned_course: scannedCourse, scanned_student_number: scannedStudentNumber }),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(payload.message || 'Saved account details could not be checked.');
+            if (lookupSequence !== identityLookupSequence
+                || [nameInput?.value.trim() || '', courseInput?.value.trim() || '', normalizeStudentNumber(studentNumberInput?.value || '')].join('|') !== lookupKey) return;
+            if (payload.matched !== true) {
+                if (resultsNote) resultsNote.textContent = 'No saved account matched these details. Continue scanning both sides to create an account.';
+                return;
+            }
+
+            existingAccountMatched = true;
+            updateExtractedFieldEditability();
+            if (!contactInput?.value.trim() && payload.contact_number) {
+                contactInput.value = payload.contact_number;
+                savedContactAutofilled = true;
+            }
+            if (!emergencyInput?.value.trim() && payload.emergency_contact) {
+                emergencyInput.value = payload.emergency_contact;
+                savedEmergencyAutofilled = true;
+            }
+            updateExtractedFieldEditability();
+            if (resultsNote) {
+                resultsNote.textContent = 'Existing account matched. Saved contact details filled in. Scan the back, then continue to sign in with your NPC email and password.';
+            }
+        } catch {
+            if (lookupSequence === identityLookupSequence) lastIdentityLookupKey = '';
+            if (resultsNote) resultsNote.textContent = 'Saved account lookup unavailable. Continue scanning the back of your ID; details can still be read from it.';
+        } finally {
+            updateValidationButton();
+        }
     }
 
     async function processIdImage(source) {
+        if (isOcrProcessing) {
+            if (status) status.textContent = 'The previous scan is still running. Wait for it to finish, then try again.';
+            return;
+        }
         const scannedSide = scanSide;
+        if (scannedSide === 'front') frontScanAttempted = true;
+        if (scannedSide === 'back') backScanAttempted = true;
         if (scannedSide === 'front') {
             [nameInput, courseInput, studentNumberInput].forEach((field) => {
                 if (field) field.value = '';
             });
         }
         if (status) status.textContent = 'Reading the ID… this may take a few seconds.';
-        showCveLoader(scannedSide === 'front' ? 'Reading the front of your ID…' : 'Reading the back of your ID…');
-        await yieldToBrowser();
         isOcrProcessing = true;
+        showCveLoader('Preparing your ID scan…');
 
         try {
+            await yieldToBrowser();
             const [worker, preparedImage] = await Promise.all([
                 withTimeout(getOcrWorker(), 20000, 'The OCR engine took too long to start.'),
                 prepareOcrImage(source),
@@ -980,25 +1409,25 @@ if (organizationScanner) {
             let passCount = 0;
             const recognize = async (image) => {
                 passCount += 1;
-                if (status) status.textContent = `Reading ID text · scan ${passCount}…`;
+                const progressMessage = `Reading ID text · scan ${passCount}…`;
+                if (status) status.textContent = progressMessage;
+                if (cveLoader && !cveLoader.hidden && cveLoaderMessage) {
+                    cveLoaderMessage.textContent = progressMessage;
+                }
                 await yieldToBrowser();
                 return withTimeout(worker.recognize(image), 30000, 'The OCR engine took too long to read this image.');
             };
             const firstPass = await recognize(preparedImage);
             let text = firstPass.data.text || '';
             let preview = previewRecognizedFields(text, scannedSide);
-            hideCveLoader();
-            if (status) status.textContent = 'Live text preview ready · checking details…';
+            const previewMessage = 'Live text preview ready · checking details…';
+            if (status) status.textContent = previewMessage;
+            if (cveLoader && !cveLoader.hidden && cveLoaderMessage) {
+                cveLoaderMessage.textContent = previewMessage;
+            }
             let focusedNameText = '';
             let focusedNumberText = '';
             if (scannedSide === 'front') {
-                if (!preview.complete) {
-                    await worker.setParameters({ tessedit_pageseg_mode: '6', tessedit_char_whitelist: '' });
-                    const rawPass = await recognize(source);
-                    text = `${text}\n${rawPass.data.text || ''}`;
-                    preview = previewRecognizedFields(text, scannedSide);
-                }
-
                 if (!preview.complete) {
                     await worker.setParameters({ tessedit_pageseg_mode: '6', tessedit_char_whitelist: '', preserve_interword_spaces: '1' });
                     const focusedPass = await recognize(cropOcrRegion(preparedImage, 0.48, 0.42));
@@ -1006,107 +1435,105 @@ if (organizationScanner) {
                     preview = previewRecognizedFields(text, scannedSide);
                 }
 
-                if (!preview.name) {
-                    await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ .-'" });
-                    const namePass = await recognize(cropOcrRegion(preparedImage, 0.52, 0.15));
+                await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ .-'" });
+                try {
+                    const namePass = await recognize(cropOcrRegion(preparedImage, 0.69, 0.075, 0.23, 0.62));
                     focusedNameText = namePass.data.text || '';
-                    text = `${text}\n${focusedNameText}`;
-                    preview = previewRecognizedFields(text, scannedSide);
+                    if (focusedNameText) {
+                        text = `${text}\n${focusedNameText}`;
+                        preview = previewRecognizedFields(text, scannedSide);
+                    }
+                } catch {
+                    focusedNameText = '';
                 }
 
-                if (!preview.studentNumber) {
-                    await worker.setParameters({ tessedit_char_whitelist: '0123456789-', tessedit_pageseg_mode: '6' });
-                    const numberPass = await recognize(cropOcrRegion(preparedImage, 0.58, 0.18));
+                await worker.setParameters({ tessedit_char_whitelist: '0123456789-', tessedit_pageseg_mode: '7' });
+                try {
+                    const numberPass = await recognize(cropOcrRegion(preparedImage, 0.755, 0.095));
                     focusedNumberText = numberPass.data.text || '';
-                    text = `${text}\n${focusedNumberText}`;
-                    preview = previewRecognizedFields(text, scannedSide);
+                    if (focusedNumberText) {
+                        text = `${text}\n${focusedNumberText}`;
+                        preview = previewRecognizedFields(text, scannedSide);
+                    }
+                } catch {
+                    focusedNumberText = '';
                 }
             } else if (!preview.complete) {
-                await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1', tessedit_char_whitelist: '' });
-                const focusedPass = await recognize(cropOcrRegion(preparedImage, 0.02, 0.58));
-                text = `${text}\n${focusedPass.data.text || ''}`;
-                preview = previewRecognizedFields(text, scannedSide);
-
-                if (!preview.complete) {
-                    await worker.setParameters({ tessedit_char_whitelist: '0123456789+()- ', tessedit_pageseg_mode: '11' });
-                    const contactPass = await recognize(cropOcrRegion(preparedImage, 0, 0.3));
-                    text = `${text}\n${contactPass.data.text || ''}`;
+                if (!preview.contact) {
+                    await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1', tessedit_char_whitelist: '' });
+                    const contactLinePass = await recognize(cropOcrRegion(preparedImage, 0.24, 0.28, 0.1, 0.8));
+                    text = `${text}\n${contactLinePass.data.text || ''}`;
                     preview = previewRecognizedFields(text, scannedSide);
                 }
 
-                if (!preview.complete) {
-                    await worker.setParameters({ tessedit_pageseg_mode: '3', tessedit_char_whitelist: '' });
-                    const fallbackPass = await recognize(source);
-                    text = `${text}\n${fallbackPass.data.text || ''}`;
+                if (!preview.contact) {
+                    await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: '0123456789OQILSBZ' });
+                    const contactDigitsPass = await recognize(cropOcrRegion(preparedImage, 0.32, 0.06, 0.18, 0.68));
+                    text = `${text}\n${contactDigitsPass.data.text || ''}`;
                     preview = previewRecognizedFields(text, scannedSide);
+                }
+
+                if (!preview.emergency || !preview.validation) {
+                    await worker.setParameters({ tessedit_pageseg_mode: '6', preserve_interword_spaces: '1', tessedit_char_whitelist: '' });
+                    const focusedPass = await recognize(cropOcrRegion(preparedImage, 0.3, 0.68));
+                    text = `${text}\n${focusedPass.data.text || ''}`;
+                    preview = previewRecognizedFields(text, scannedSide);
+                }
+
+                if (!preview.contact || !preview.emergency) {
+                    await worker.setParameters({ tessedit_char_whitelist: '0123456789+()-. OQILSBZ', tessedit_pageseg_mode: '11' });
+                    for (const [top, height] of [[0.02, 0.58], [0.4, 0.58]]) {
+                        const contactPass = await recognize(cropOcrRegion(preparedImage, top, height));
+                        text = `${text}\n${contactPass.data.text || ''}`;
+                        preview = previewRecognizedFields(text, scannedSide);
+                        if (preview.contact && preview.emergency) break;
+                    }
                 }
             }
             await worker.setParameters({ tessedit_pageseg_mode: '3', tessedit_char_whitelist: '' });
             const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-            const labeledStudentTexts = [...text.matchAll(/(?:stud\.?\s*no\.?|student\s*(?:no\.?|number))[^\r\n]{0,40}/gi)]
-                .map((match) => match[0]);
-            const studentNumberSources = [
-                ...labeledStudentTexts,
-                ...labeledStudentTexts.map((value) => value.match(/[0-9A-Za-z][0-9A-Za-z\s-]{4,}/)?.[0] || ''),
-                ...lines.filter((line) => /stud\.?\s*no\.?|student\s*(?:no\.?|number)/i.test(line))
-                    .map((line) => line.match(/[0-9A-Za-z-]{5,}/)?.[0] || ''),
-                focusedNumberText,
-            ].map((value) => {
-                const normalized = extractStudentNumber(value);
-                const numberPart = String(value || '').replace(/.*?(?:stud\.?\s*no\.?|student\s*(?:no\.?|number))/i, '');
-                const compact = numberPart.replace(/[^0-9A-Za-z]/gi, '');
-                const score = (compact.length === 6 ? 2 : 0) + (/[A-Za-z]/.test(compact) ? 1 : 0);
-                return { normalized, score };
-            }).filter(({ normalized }) => isValidStudentNumber(normalized));
-            studentNumberSources.sort((left, right) => right.score - left.score);
-            const studentNumber = studentNumberSources[0]?.normalized || '';
-            const backContacts = scannedSide === 'back'
-                ? extractBackContacts(text)
-                : { contact: '', emergency: '' };
-            const contact = scannedSide === 'back'
-                ? backContacts.contact
-                : text.match(/(?:contact\s*(?:no\.?|number)|mobile|phone)\s*[:.#-]?\s*(09\d{9}|\+63\s*9\d{9})/i)?.[1]
-                    || text.match(/(?:\+63\s*9\d{9}|09\d{9})/)?.[0]
-                    || '';
+            const studentNumber = extractStudentNumber(focusedNumberText) || extractStudentNumber(text);
+            const contacts = extractContactDetails(text);
+            const contact = contacts.contact;
             const course = normalizeCourse(
                 readField(lines, /^(?:course|program)\s*[:.-]?\s*/i)
                     || lines.find((line) => /associate|bachelor|computer|information\s+system/i.test(line) && line.length < 100),
                 lines,
             );
             const focusedNameLines = focusedNameText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-            const nameCandidates = [
-                ...focusedNameLines,
-                ...lines.flatMap((line, index) => [line, `${line} ${lines[index + 1] || ''}`]),
-            ];
-            const extractedName = nameCandidates.map(normalizeOcrName).find((line) => isLikelyPersonalName(line)) || '';
-            const emergency = backContacts.emergency || lines.find((line) => /emergency|notify|contact\s+person/i.test(line)) || '';
+            const extractedName = extractLikelyPersonalName([...focusedNameLines, ...lines]);
+            const emergency = contacts.emergency || lines.find((line) => /emergency|notify|contact\s+person/i.test(line)) || '';
             const validationFound = /validation|1st\s*sem|2nd\s*sem|signature/i.test(text);
 
-            if (scanSide === 'front') {
+            if (scannedSide === 'front') {
                 if (isLikelyPersonalName(extractedName)) nameInput.value = formatDisplayName(extractedName);
                 if (course) courseInput.value = course;
                 if (isValidStudentNumber(studentNumber)) studentNumberInput.value = studentNumber;
                 if (/integrated computer society|\bics\b/i.test(text)) input.value = 'ICS';
             }
-            if (contact) contactInput.value = contact;
-            if (emergency) emergencyInput.value = emergencyInput.value || emergency;
+            const resolvedContact = contact || (existingAccountMatched ? contactInput?.value.trim() : '');
+            const resolvedEmergency = emergency || (existingAccountMatched ? emergencyInput?.value.trim() : '');
+            if (contact && (!existingAccountMatched || !contactInput?.value.trim())) contactInput.value = contact;
+            if (scannedSide === 'back' && emergency && (!existingAccountMatched || !emergencyInput?.value.trim())) emergencyInput.value = emergency;
             results.hidden = false;
-            const sideValid = validateScannedId(text, extractedName, scanSide, {
+            const sideValid = validateScannedId(text, extractedName, scannedSide, {
                 course,
                 studentNumber,
-                contact,
-                emergency,
+                contact: resolvedContact,
+                emergency: resolvedEmergency,
                 validation: validationFound,
             });
+            delete organizationScanner.dataset.errorCode;
             if (scannedSide === 'front') frontScanDetected = sideValid;
             else backScanDetected = sideValid;
             scannerFailed = scannedSide === 'front' ? !sideValid : (scannerFailed || !sideValid);
-            setExtractedFieldsEditable(scannerFailed);
+            updateExtractedFieldEditability();
             if (scannedSide === 'front') {
                 if (sideValid) {
                     scanSide = 'back';
                     updateStageUi();
                     if (status) status.textContent = 'Front captured. Turn the ID over, then scan the back.';
+                    await lookupExistingStudent();
                 } else if (status) {
                     status.textContent = 'Front scan incomplete. Fill the missing fields, then scan the back ID.';
                     updateStageUi();
@@ -1115,9 +1542,12 @@ if (organizationScanner) {
                 scanComplete = frontScanDetected && backScanDetected;
                 status.textContent = scanComplete
                     ? 'Front and back scanned. Review the extracted details before continuing.'
-                    : 'Back scan incomplete. Fill the missing fields and confirm the back-side sections.';
+                    : `Back scan incomplete. ${resolvedContact ? 'Review the contact number and fill other missing details.' : 'The contact number was not readable; enter it manually, then complete the other highlighted details.'}`;
             }
             updateValidationButton();
+            if (existingAccountMatched && resultsNote) {
+                resultsNote.textContent = 'Existing account matched. Saved contact details are filled where available; continue to sign in with your NPC email and password.';
+            }
             if (resultStatus) {
                 resultStatus.hidden = false;
                 resultStatus.className = `scanner-result-status ${sideValid ? 'is-success' : 'is-error'}`;
@@ -1128,15 +1558,17 @@ if (organizationScanner) {
         } catch (error) {
             ocrWorkerPromise = null;
             scannerFailed = true;
-            setExtractedFieldsEditable(true);
+            updateExtractedFieldEditability();
             updateEmailAccess();
-            if (status) status.textContent = 'The ID could not be read. Try a clearer, well-lit image or enter the details manually.';
+            const failure = normalizeScannerError(error);
+            organizationScanner.dataset.errorCode = failure.code;
+            if (status) status.textContent = failure.message;
             if (resultStatus) {
                 resultStatus.hidden = false;
                 resultStatus.className = 'scanner-result-status is-error';
-                resultStatus.textContent = '× Scan failed. Try again with the ID flat, well-lit, and fully inside the frame.';
+                resultStatus.textContent = `× ${failure.message}`;
             }
-            console.error(error);
+            console.error(`[ID scanner] ${failure.code}`);
         } finally {
             isOcrProcessing = false;
             autoCapturePending = false;
@@ -1214,16 +1646,21 @@ if (organizationScanner) {
             qualityTimer = window.setInterval(updateCameraQuality, 700);
             updateCameraQuality();
             if (barcodeDetector) window.requestAnimationFrame(scanOrganizationId);
-        } catch {
+        } catch (error) {
             await stopOrganizationScanner();
             hideCveLoader();
-            if (status) status.textContent = 'Camera access was not granted. Enter the organization ID below.';
+            const failure = normalizeScannerError(error, 'camera');
+            organizationScanner.dataset.errorCode = failure.code;
+            if (status) status.textContent = failure.message;
         }
     }
 
     function warmOcrWorker() {
-        void getOcrWorker().catch(() => {
+        void getOcrWorker().catch((error) => {
             ocrWorkerPromise = null;
+            const failure = normalizeScannerError(error);
+            organizationScanner.dataset.errorCode = failure.code;
+            if (status) status.textContent = failure.message;
         });
     }
 
@@ -1255,16 +1692,17 @@ if (organizationScanner) {
 
     uploadLabel?.addEventListener('click', warmOcrWorker);
 
-    nextButton?.addEventListener('click', () => {
+    nextButton?.addEventListener('click', async () => {
         if (!nameInput?.value.trim() || !courseInput?.value.trim() || !studentNumberInput?.value.trim()) {
             if (validationMessage) validationMessage.textContent = 'Fill full name, course, and student number before moving to the back ID.';
             return;
         }
         frontScanDetected = true;
-        setExtractedFieldsEditable(false);
+        updateExtractedFieldEditability();
         scanSide = 'back';
         updateStageUi();
         if (status) status.textContent = 'Front details saved. Turn the ID over, then scan the back.';
+        await lookupExistingStudent();
         if (resultStatus) {
             resultStatus.hidden = false;
             resultStatus.className = 'scanner-result-status is-success';
@@ -1273,7 +1711,50 @@ if (organizationScanner) {
         updateValidationButton();
     });
 
-    [nameInput, courseInput, studentNumberInput, contactInput, emergencyInput].forEach((field) => field?.addEventListener('input', updateValidationButton));
+    manualFallbackButton?.addEventListener('click', () => {
+        if (!frontScanAttempted || !backScanAttempted) {
+            setValidationMessage('Capture both sides of your NPC ID first. If text is unreadable, you can then enter the details manually.');
+            return;
+        }
+        manualFallbackEnabled = true;
+        scannerFailed = true;
+        frontScanDetected = false;
+        backScanDetected = false;
+        backScanAttempted = true;
+        results.hidden = false;
+        updateExtractedFieldEditability();
+        if (status) status.textContent = 'Manual entry enabled. Enter the details exactly as printed and provide your NPC institutional email.';
+        if (resultStatus) {
+            resultStatus.hidden = false;
+            resultStatus.className = 'scanner-result-status is-error';
+            resultStatus.textContent = 'Scanning skipped. Review every field and enter your NPC email to continue.';
+        }
+        if (resultsNote) resultsNote.textContent = 'Manual fallback · enter the details exactly as printed on both ID sides.';
+        updateValidationButton();
+        nameInput?.focus();
+    });
+
+    [nameInput, courseInput, studentNumberInput].forEach((field) => field?.addEventListener('input', () => {
+        identityLookupSequence += 1;
+        lastIdentityLookupKey = '';
+        existingAccountMatched = false;
+        if (savedContactAutofilled && contactInput) contactInput.value = '';
+        if (savedEmergencyAutofilled && emergencyInput) emergencyInput.value = '';
+        savedContactAutofilled = false;
+        savedEmergencyAutofilled = false;
+        updateExtractedFieldEditability();
+        updateValidationButton();
+        if (scanSide === 'back' && frontScanDetected) {
+            window.clearTimeout(identityLookupTimer);
+            identityLookupTimer = window.setTimeout(() => lookupExistingStudent(), 350);
+        }
+    }));
+    [contactInput, emergencyInput].forEach((field) => field?.addEventListener('input', () => {
+        if (field === contactInput) savedContactAutofilled = false;
+        if (field === emergencyInput) savedEmergencyAutofilled = false;
+        updateValidationButton();
+    }));
+    [scannerEmailInput, emailInput].forEach((field) => field?.addEventListener('input', updateValidationButton));
     [signatureInput, organizationConfirmedInput, emergencyConfirmedInput, validationConfirmedInput, confirmInput].forEach((field) => field?.addEventListener('change', updateValidationButton));
     emailLoginToggle?.addEventListener('click', (event) => {
         event.preventDefault();
@@ -1282,19 +1763,41 @@ if (organizationScanner) {
         updateEmailAccess();
         if (emailLoginMode) emailInput?.focus();
     });
-    loginForm?.addEventListener('submit', (event) => {
-        if (emailLoginMode) return;
+    loginForm?.addEventListener('submit', async (event) => {
         event.preventDefault();
-        hideCveLoader();
-        emailLoginMode = true;
-        emailLoginToggle.textContent = 'Use organization ID scanner';
-        updateEmailAccess();
-        emailInput?.focus();
+
+        if (!emailLoginMode) {
+            hideCveLoader();
+            emailLoginMode = true;
+            emailLoginToggle.textContent = 'Use organization ID scanner';
+            updateEmailAccess();
+            emailSubmit.disabled = false;
+            emailInput?.focus();
+            return;
+        }
+
+        await submitEmailLogin();
     });
     validateButton?.addEventListener('click', async () => {
         updateValidationButton();
         if (validateButton.disabled) {
-            setValidationMessage('Scan both sides of the ID and complete the required details first.');
+            setValidationMessage(existingAccountMatched
+                ? 'Complete the front ID details and saved contact fields first.'
+                : 'Scan both sides of the ID and complete the required details first.');
+            return;
+        }
+        if (existingAccountMatched) {
+            if (!frontScanDetected || !scannerFieldsComplete()) {
+                setValidationMessage('Complete the front ID details and saved contact fields first.');
+                return;
+            }
+
+            emailLoginMode = true;
+            emailLoginToggle.textContent = 'Use organization ID scanner';
+            updateEmailAccess();
+            setValidationMessage('Existing student matched. Sign in with your NPC institutional email and password.', 'success');
+            emailInput?.focus();
+            emailLoginPanel?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             return;
         }
         const missingFields = [
@@ -1304,10 +1807,11 @@ if (organizationScanner) {
             [contactInput, 'contact number'],
             [emergencyInput, 'emergency contact'],
         ].filter(([field]) => !field?.value.trim()).map(([, label]) => label);
-        if (missingFields.length || !frontScanDetected || !backScanDetected) {
+        const manuallyCompletedBack = hasManuallyCompletedBackDetails();
+        if (missingFields.length || (!manualFallbackEnabled && !frontScanDetected) || (!manualFallbackEnabled && !backScanDetected && !manuallyCompletedBack)) {
             const missing = [...missingFields];
-            if (!frontScanDetected) missing.unshift('front ID scan');
-            if (!backScanDetected) missing.unshift('back ID scan');
+            if (!manualFallbackEnabled && !frontScanDetected) missing.unshift('front ID scan');
+            if (!manualFallbackEnabled && !backScanDetected && !manuallyCompletedBack) missing.unshift('back ID scan');
             setValidationMessage(`Validation failed. Complete: ${missing.join(', ')}.`);
             updateEmailAccess();
             const firstMissing = [nameInput, courseInput, studentNumberInput, contactInput, emergencyInput].find((field) => !field?.value.trim());
@@ -1324,18 +1828,42 @@ if (organizationScanner) {
         if (scannerEmailInput?.value.trim() && emailInput) emailInput.value = scannerEmailInput.value.trim();
         showCveLoader('Validating your NPC ID details…');
         validateButton.disabled = true;
+        let timeoutId;
         try {
-            const response = await fetch('/login/verify-id', {
+            const controller = new AbortController();
+            timeoutId = window.setTimeout(() => controller.abort(), 20000);
+            const response = await fetch(loginForm.dataset.verifyUrl || '/login/verify-id', {
                 method: 'POST',
+                credentials: 'same-origin',
+                cache: 'no-store',
                 headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': loginForm.querySelector('input[name="_token"]').value },
                 body: JSON.stringify(Object.fromEntries(new FormData(loginForm))),
+                signal: controller.signal,
             });
-            const payload = await response.json();
-            if (!response.ok) throw new Error(payload.message || Object.values(payload.errors || {}).flat().join(' ') || 'The ID details could not be validated.');
+            window.clearTimeout(timeoutId);
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const validationErrors = Object.values(payload.errors || {}).flat().join(' ');
+                const fallbackMessage = response.status === 419
+                    ? 'Your page session expired. Reload the page and try again; your details are still on this page.'
+                    : response.status === 429
+                        ? 'Too many attempts. Wait a minute, then retry; your details are still on this page.'
+                        : response.status >= 500
+                            ? 'Account verification is temporarily unavailable. Your details are still here; retry shortly or sign in with your institutional email.'
+                            : 'The ID details could not be validated.';
+                throw new Error(payload.message || validationErrors || fallbackMessage);
+            }
             setValidationMessage('Validated successfully. Opening the dashboard…', 'success');
-            window.location.assign(payload.redirect || '/dashboard');
+            if (payload.authenticated !== true) throw new Error('Verification completed without starting your session. Please retry.');
+            redirectToDashboard(payload.redirect);
         } catch (error) {
-            setValidationMessage(`Validation failed: ${error.message}`);
+            window.clearTimeout(timeoutId);
+            const message = error.name === 'AbortError'
+                ? 'Verification took too long. Your details are still here; retry shortly or sign in with your institutional email.'
+                : error instanceof TypeError
+                    ? 'The server could not be reached. Check your connection and retry; your details are still here.'
+                    : error.message;
+            setValidationMessage(`Validation failed: ${message}`);
             validateButton.disabled = false;
             hideCveLoader();
         }
@@ -1360,7 +1888,7 @@ if (reservationForm) {
                 headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': reservationForm.querySelector('input[name="_token"]').value },
                 body: JSON.stringify(Object.fromEntries(new FormData(reservationForm))),
             });
-            const payload = await response.json();
+            const payload = await readJsonResponse(response);
             if (!response.ok) {
                 const errors = payload.errors ? Object.values(payload.errors).flat().join(' ') : (payload.message || 'Reservation could not be submitted.');
                 throw new Error(errors);
@@ -1383,6 +1911,25 @@ const shell = document.querySelector('#app-shell');
 const mobileScrim = document.querySelector('#mobile-scrim');
 
 if (sidebarToggle && shell && mobileScrim) {
+    const sidebarPreferenceKey = 'cve.sidebarCollapsed';
+    const isMobileNavigation = () => window.matchMedia('(max-width: 680px)').matches;
+
+    function applyDesktopSidebarPreference() {
+        if (isMobileNavigation()) {
+            return;
+        }
+
+        let collapsed = false;
+        try {
+            collapsed = window.localStorage.getItem(sidebarPreferenceKey) === 'true';
+        } catch {}
+
+        shell.classList.toggle('sidebar-collapsed', collapsed);
+        sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+        sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation');
+        sidebarToggle.title = collapsed ? 'Expand navigation' : 'Collapse navigation';
+    }
+
     function setMobileNavigation(open) {
         shell.classList.toggle('mobile-nav-open', open);
         mobileScrim.hidden = !open;
@@ -1392,10 +1939,13 @@ if (sidebarToggle && shell && mobileScrim) {
     }
 
     sidebarToggle.addEventListener('click', () => {
-        if (window.matchMedia('(max-width: 680px)').matches) {
+        if (isMobileNavigation()) {
             setMobileNavigation(!shell.classList.contains('mobile-nav-open'));
         } else {
             const collapsed = shell.classList.toggle('sidebar-collapsed');
+            try {
+                window.localStorage.setItem(sidebarPreferenceKey, String(collapsed));
+            } catch {}
             sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
             sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation');
             sidebarToggle.title = collapsed ? 'Expand navigation' : 'Collapse navigation';
@@ -1405,7 +1955,7 @@ if (sidebarToggle && shell && mobileScrim) {
     mobileScrim.addEventListener('click', () => setMobileNavigation(false));
     document.querySelectorAll('.sidebar a').forEach((link) => {
         link.addEventListener('click', () => {
-            if (window.matchMedia('(max-width: 680px)').matches) {
+            if (isMobileNavigation()) {
                 setMobileNavigation(false);
             }
         });
@@ -1416,9 +1966,68 @@ if (sidebarToggle && shell && mobileScrim) {
         }
     });
 
-    if (window.matchMedia('(max-width: 680px)').matches) {
+    if (isMobileNavigation()) {
         setMobileNavigation(false);
+    } else {
+        applyDesktopSidebarPreference();
     }
+
+    window.addEventListener('resize', () => {
+        if (isMobileNavigation()) {
+            setMobileNavigation(false);
+        } else {
+            applyDesktopSidebarPreference();
+        }
+    });
+
+    const sidebarTooltip = document.createElement('div');
+    sidebarTooltip.className = 'sidebar-link-tooltip';
+    sidebarTooltip.id = 'sidebar-link-tooltip';
+    sidebarTooltip.setAttribute('role', 'tooltip');
+    sidebarTooltip.hidden = true;
+    document.body.append(sidebarTooltip);
+
+    let tooltipTarget = null;
+
+    function hideSidebarTooltip() {
+        if (tooltipTarget) {
+            tooltipTarget.removeAttribute('aria-describedby');
+            tooltipTarget = null;
+        }
+
+        sidebarTooltip.hidden = true;
+    }
+
+    function showSidebarTooltip(link) {
+        const label = link.dataset.sidebarTooltip;
+        if (!label || !shell.classList.contains('sidebar-collapsed') || isMobileNavigation()) {
+            hideSidebarTooltip();
+            return;
+        }
+
+        const linkBounds = link.getBoundingClientRect();
+        sidebarTooltip.textContent = label;
+        sidebarTooltip.style.top = `${Math.min(window.innerHeight - 20, Math.max(20, linkBounds.top + linkBounds.height / 2))}px`;
+        sidebarTooltip.style.left = `${linkBounds.right + 9}px`;
+        sidebarTooltip.hidden = false;
+        if (tooltipTarget && tooltipTarget !== link) {
+            tooltipTarget.removeAttribute('aria-describedby');
+        }
+
+        tooltipTarget = link;
+        link.setAttribute('aria-describedby', sidebarTooltip.id);
+    }
+
+    document.querySelectorAll('.sidebar [data-sidebar-tooltip]').forEach((link) => {
+        link.addEventListener('pointerenter', () => showSidebarTooltip(link));
+        link.addEventListener('pointerleave', () => {
+            if (document.activeElement !== link) {
+                hideSidebarTooltip();
+            }
+        });
+        link.addEventListener('focus', () => showSidebarTooltip(link));
+        link.addEventListener('blur', hideSidebarTooltip);
+    });
 }
 
 const popoverItems = [
@@ -1444,16 +2053,6 @@ popoverItems.forEach(({ trigger, panel }) => {
         closePopovers(willOpen ? panel : null);
         panel.hidden = !willOpen;
         trigger.setAttribute('aria-expanded', String(willOpen));
-        if (willOpen && trigger.id === 'notification-toggle') {
-            trigger.querySelector('.notification-dot')?.setAttribute('hidden', 'hidden');
-            panel.querySelectorAll('[data-notification-id].is-unread').forEach((item) => {
-                item.classList.remove('is-unread');
-                fetch(`/notifications/${item.dataset.notificationId}/read`, {
-                    method: 'POST',
-                    headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || document.querySelector('input[name="_token"]')?.value || '', Accept: 'application/json' },
-                }).catch(() => {});
-            });
-        }
     });
 });
 
@@ -1579,7 +2178,7 @@ function renderAvailabilityResults(rooms) {
     availabilityResults.replaceChildren();
     if (!rooms.length) {
         const empty = document.createElement('p');
-        empty.className = 'availability-note';
+        empty.className = 'availability-result-message is-empty';
         empty.textContent = 'No rooms match this availability window.';
         availabilityResults.append(empty);
         return;
@@ -1617,8 +2216,18 @@ function renderScheduleItems(items, target) {
     target.replaceChildren();
     if (!items.length) {
         const empty = document.createElement('li');
-        empty.className = 'upcoming-empty';
-        empty.textContent = 'No reservations scheduled for this floor on this date.';
+        empty.className = 'upcoming-empty schedule-skeleton-empty';
+        empty.setAttribute('aria-label', 'No reservations scheduled. Placeholder timeline rows shown for layout preview.');
+        const message = document.createElement('strong');
+        message.textContent = 'No reservations scheduled for this floor on this date.';
+        const skeleton = document.createElement('span');
+        skeleton.className = 'schedule-skeleton-rows';
+        skeleton.setAttribute('aria-hidden', 'true');
+        for (let index = 0; index < 3; index += 1) {
+            const row = document.createElement('i');
+            skeleton.append(row);
+        }
+        empty.append(message, skeleton);
         target.append(empty);
         return;
     }
@@ -1656,16 +2265,22 @@ async function loadFloorPlanData(filters, onSuccess, messageElement) {
     filters.querySelectorAll('input, select').forEach((input) => {
         if (input.value) url.searchParams.set(input.id.replace(/^availability-|^schedule-/, '').replace('-input', ''), input.value);
     });
-    if (messageElement) messageElement.textContent = 'Loading live room data…';
+    if (messageElement) {
+        messageElement.textContent = 'Loading live room data…';
+        messageElement.classList.remove('is-error');
+    }
     showCveLoader('Refreshing live room data…');
     try {
         const response = await fetch(url, { headers: { Accept: 'application/json' } });
-        if (!response.ok) throw new Error('Request failed');
-        const payload = await response.json();
+        const payload = await readJsonResponse(response);
+        if (!response.ok) throw new Error(payload.message || 'Live room data could not be loaded.');
         onSuccess(payload);
         if (messageElement) messageElement.textContent = `Updated ${new Date(payload.meta.generated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`;
-    } catch {
-        if (messageElement) messageElement.textContent = 'Live room data could not be loaded. Try again shortly.';
+    } catch (error) {
+        if (messageElement) {
+            messageElement.textContent = error.message || 'Live room data could not be loaded. Try again shortly.';
+            messageElement.classList.add('is-error');
+        }
     } finally {
         hideCveLoader();
     }
@@ -1703,13 +2318,19 @@ if (directoryMessage && directoryGrid) {
     let rooms = [];
     let requestId = 0;
 
+    function setDirectoryMessage(message, state = '') {
+        let statusText = directoryMessage.querySelector('span');
+        if (!statusText) {
+            statusText = document.createElement('span');
+            directoryMessage.append(statusText);
+        }
+        statusText.textContent = message;
+        directoryMessage.classList.toggle('is-error', state === 'error');
+        directoryMessage.classList.toggle('is-empty', state === 'empty');
+    }
+
     function renderDirectory() {
-        const status = statusSelect.value;
-        const type = typeSelect?.value || 'all';
-        const minimumCapacity = Number(capacityInput?.value || 0);
-        const visibleRooms = rooms.filter((room) => (status === 'all' || room.status === status)
-            && (type === 'all' || String(room.type || '').toLowerCase() === type)
-            && Number(room.capacity) >= minimumCapacity);
+        const visibleRooms = rooms;
         directoryGrid.replaceChildren();
 
         visibleRooms.forEach((room) => {
@@ -1738,8 +2359,8 @@ if (directoryMessage && directoryGrid) {
             const facts = document.createElement('dl');
             facts.className = 'directory-facts';
             [
-                ['Building', 'NPC Main Building'],
-                ['Floor', `${floorSelect.value}${floorSelect.value === '1' ? 'st' : floorSelect.value === '2' ? 'nd' : 'rd'} Floor`],
+                ['Building', room.building],
+                ['Floor', room.floorName],
                 ['Capacity', `${room.capacity} seats`],
                 ['Room type', room.type || 'General room'],
                 ['Equipment', room.equipment],
@@ -1760,46 +2381,89 @@ if (directoryMessage && directoryGrid) {
             floorPlanLink.className = 'text-link';
             floorPlanLink.textContent = 'View in 3D';
             const floorPlanUrl = new URL(directoryGrid.dataset.floorPlanUrl, window.location.origin);
-            floorPlanUrl.searchParams.set('floor', floorSelect.value);
+            floorPlanUrl.searchParams.set('floor', room.floor);
             floorPlanLink.href = floorPlanUrl.toString();
-
-            const reservationLink = document.createElement('a');
-            reservationLink.className = 'text-link';
-            reservationLink.href = directoryGrid.dataset.reservationsUrl;
-            reservationLink.textContent = 'Reservation steps';
 
             const scheduleLink = document.createElement('a');
             scheduleLink.className = 'text-link';
             scheduleLink.href = directoryGrid.dataset.scheduleUrl;
             scheduleLink.textContent = 'View schedule';
-            actions.append(floorPlanLink, reservationLink, scheduleLink);
+            actions.append(floorPlanLink);
+
+            if (directoryGrid.dataset.reservationsUrl) {
+                const reservationLink = document.createElement('a');
+                reservationLink.className = 'secondary-button';
+                reservationLink.href = directoryGrid.dataset.reservationsUrl;
+                reservationLink.textContent = 'Reserve Room';
+                const reservationUrl = new URL(directoryGrid.dataset.reservationsUrl, window.location.origin);
+                reservationUrl.searchParams.set('room_id', room.reservationId);
+                reservationLink.href = reservationUrl.toString();
+                actions.append(reservationLink);
+            }
+
+            actions.append(scheduleLink);
 
             card.append(top, facts, actions);
             directoryGrid.append(card);
         });
 
-        directoryMessage.textContent = visibleRooms.length
-            ? `${visibleRooms.length} room${visibleRooms.length === 1 ? '' : 's'} shown for this floor.`
-            : 'No rooms match this status on the selected floor.';
+        const isEmpty = visibleRooms.length === 0;
+        setDirectoryMessage(isEmpty
+            ? 'No rooms match the selected filters on this floor.'
+            : `${visibleRooms.length} room${visibleRooms.length === 1 ? '' : 's'} shown for this floor.`, isEmpty ? 'empty' : '');
     }
 
-    async function loadDirectory(floor) {
+    function updateFilterOptions(meta) {
+        const selectedFloor = String(meta.floor || '');
+        const selectedType = typeSelect.value;
+        const floors = meta.floors || [];
+        const types = meta.types || [];
+        const resetType = selectedType !== 'all' && !types.includes(selectedType);
+
+        floorSelect.replaceChildren(new Option('Choose a floor', ''));
+        floors.forEach((floor) => floorSelect.add(new Option(floor.name, floor.number)));
+        floorSelect.disabled = floors.length === 0;
+        floorSelect.value = selectedFloor;
+
+        typeSelect.replaceChildren(new Option('All room types', 'all'));
+        types.forEach((type) => typeSelect.add(new Option(type, type)));
+        typeSelect.value = types.includes(selectedType) ? selectedType : 'all';
+
+        return resetType;
+    }
+
+    async function loadDirectory() {
         const activeRequestId = ++requestId;
-        directoryMessage.textContent = 'Loading room inventory…';
+        setDirectoryMessage('Loading room inventory…');
         directoryGrid.setAttribute('aria-busy', 'true');
         showCveLoader('Loading room inventory…');
 
         try {
             const url = new URL(directoryMessage.dataset.endpoint, window.location.origin);
-            url.searchParams.set('floor', floor);
+            if (floorSelect.value) {
+                url.searchParams.set('floor', floorSelect.value);
+            }
+            if (typeSelect?.value && typeSelect.value !== 'all') {
+                url.searchParams.set('type', typeSelect.value);
+            }
+            if (capacityInput?.value) {
+                url.searchParams.set('min_capacity', capacityInput.value);
+            }
+            if (statusSelect?.value && statusSelect.value !== 'all') {
+                url.searchParams.set('status', statusSelect.value);
+            }
             const response = await fetch(url, { headers: { Accept: 'application/json' } });
-
+            const payload = await readJsonResponse(response);
             if (!response.ok) {
-                throw new Error(`Room directory request failed with status ${response.status}.`);
+                throw new Error(payload.message || `Room directory request failed with status ${response.status}.`);
+            }
+            if (!Array.isArray(payload.data) || activeRequestId !== requestId) {
+                return;
             }
 
-            const payload = await response.json();
-            if (!Array.isArray(payload.data) || activeRequestId !== requestId) {
+            const shouldReloadAfterTypeReset = updateFilterOptions(payload.meta || {});
+            if (shouldReloadAfterTypeReset) {
+                loadDirectory();
                 return;
             }
 
@@ -1812,7 +2476,7 @@ if (directoryMessage && directoryGrid) {
 
             rooms = [];
             directoryGrid.replaceChildren();
-            directoryMessage.textContent = 'Room inventory could not be loaded. Check the connection and try another floor.';
+            setDirectoryMessage(error.message || 'Room inventory could not be loaded. Check your connection and try again.', 'error');
             console.error(error);
         } finally {
             if (activeRequestId === requestId) {
@@ -1822,9 +2486,63 @@ if (directoryMessage && directoryGrid) {
         }
     }
 
-    floorSelect.addEventListener('change', () => loadDirectory(floorSelect.value));
-    statusSelect.addEventListener('change', renderDirectory);
-    typeSelect?.addEventListener('change', renderDirectory);
-    capacityInput?.addEventListener('input', renderDirectory);
-    loadDirectory(floorSelect.value);
+    floorSelect.addEventListener('change', loadDirectory);
+    statusSelect.addEventListener('change', loadDirectory);
+    typeSelect.addEventListener('change', loadDirectory);
+    capacityInput.addEventListener('change', loadDirectory);
+    loadDirectory();
 }
+
+document.querySelectorAll('[data-equipment-form-toggle]').forEach((toggle) => {
+    const formPanel = document.getElementById(toggle.getAttribute('aria-controls') || '');
+    if (!formPanel) return;
+    toggle.addEventListener('click', () => {
+        const selectedEquipmentId = toggle.dataset.equipmentId;
+        const equipmentSelect = formPanel.querySelector('[name="equipment_id"]');
+        if (selectedEquipmentId && equipmentSelect) equipmentSelect.value = selectedEquipmentId;
+        const opening = Boolean(selectedEquipmentId) || formPanel.hidden;
+        formPanel.hidden = !opening;
+        document.querySelectorAll('[data-equipment-form-toggle]').forEach((button) => {
+            button.setAttribute('aria-expanded', String(opening));
+        });
+        document.querySelectorAll('[data-equipment-form-close]').forEach((button) => {
+            button.innerHTML = opening ? 'Close request form' : 'Open request form';
+        });
+        if (opening) {
+            formPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            (selectedEquipmentId ? equipmentSelect : formPanel.querySelector('select'))?.focus({ preventScroll: true });
+        }
+    });
+});
+
+document.querySelectorAll('[data-qr-code]').forEach(async (qrContainer) => {
+    const token = qrContainer.dataset.qrValue;
+    const image = qrContainer.querySelector('img');
+    const loading = qrContainer.querySelector('.qr-loading');
+    const error = qrContainer.querySelector('.qr-error');
+    const downloadButton = qrContainer.parentElement.querySelector('[data-qr-download]');
+    if (!token || !image || !downloadButton) return;
+
+    try {
+        const qrModule = await import('qrcode');
+        const qrCode = qrModule.default || qrModule;
+        image.src = await qrCode.toDataURL(token, {
+            errorCorrectionLevel: 'M',
+            width: 280,
+            margin: 2,
+            color: { dark: '#172c36', light: '#ffffff' },
+        });
+        image.hidden = false;
+        loading?.remove();
+        downloadButton.disabled = false;
+        downloadButton.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = image.src;
+            link.download = 'campus-profile-qr.png';
+            link.click();
+        });
+    } catch {
+        if (loading) loading.hidden = true;
+        if (error) error.hidden = false;
+    }
+});

@@ -22,11 +22,12 @@
                 <div class="auth-trust"><span><x-icon name="shield" /></span><small>Access is limited to verified NPC students and organization members.</small></div>
             </div>
             <div class="auth-form-panel">
-                <div class="auth-form-heading"><p class="eyebrow">SECURE SIGN IN</p><h2>Identify your organization</h2><p>Scan your organization ID, then enter your account details.</p></div>
+                <div class="auth-form-heading"><p class="eyebrow">SECURE SIGN IN</p><h2>Scan your NPC ID</h2><p>New students can create an account. Existing students can retrieve saved details, then sign in.</p></div>
                 @if ($errors->any())
                     <div class="notice-panel" role="alert">{{ $errors->first() }}</div>
                 @endif
-                <form id="login-form" method="POST" action="{{ route('login.store') }}" class="stack-form" data-loading-form data-loading-message="Validating your NPC access…">
+                <p class="notice-panel" data-login-message role="alert" aria-live="assertive" hidden></p>
+                <form id="login-form" method="POST" action="{{ route('login.store', absolute: false) }}" data-verify-url="{{ route('login.verify-id', absolute: false) }}" data-lookup-url="{{ route('login.lookup-id', absolute: false) }}" data-dashboard-url="{{ route('dashboard.student', absolute: false) }}" class="stack-form" data-loading-form data-loading-message="Validating your NPC access…">
                     @csrf
                     <div class="org-scanner" data-scanner>
                         <div class="scanner-frame">
@@ -47,6 +48,7 @@
                         <div class="scanner-secondary-actions">
                             <label class="secondary-button scanner-upload-action"><span data-scanner-upload-label>Capture and read front ID</span><input data-scanner-upload type="file" accept="image/*" capture="environment" multiple></label>
                             <button class="secondary-button scanner-next" type="button" data-scanner-next hidden>Continue to back ID <span aria-hidden="true">→</span></button>
+                            <button class="secondary-button scanner-manual-fallback" type="button" data-scanner-manual-fallback>Enter details manually</button>
                         </div>
                         <label class="filter-field scanner-manual"><span>Organization ID</span><input data-scanner-input type="text" name="organization_id" placeholder="Enter ID if scanning is unavailable" autocomplete="off"></label>
                         <div class="scanner-results" data-scanner-results hidden>
@@ -55,7 +57,7 @@
                             <label class="filter-field"><span>Full name</span><input data-scanner-name type="text" name="scanned_name" autocomplete="name" readonly></label>
                             <label class="filter-field"><span>Course / program</span><input data-scanner-course type="text" name="scanned_course" readonly></label>
                             <label class="filter-field"><span>Student number</span><input data-scanner-student-number type="text" name="scanned_student_number" readonly></label>
-                            <label class="filter-field"><span>Contact number</span><input data-scanner-contact type="tel" name="scanned_contact" readonly></label>
+                            <label class="filter-field"><span>Contact number</span><input data-scanner-contact type="tel" name="scanned_contact" placeholder="09XXXXXXXXX" autocomplete="tel" readonly></label>
                             <label class="filter-field"><span>Emergency contact</span><input data-scanner-emergency type="text" name="emergency_contact" autocomplete="off" placeholder="Name and/or Philippine contact number" readonly></label>
                             <div class="scanner-validation" data-scanner-validation aria-live="polite"></div>
                             <button class="primary-button scanner-validate-button" type="button" data-scanner-validate disabled>Validate extracted details <span aria-hidden="true">↗</span></button>
@@ -67,12 +69,24 @@
                     <button class="text-link auth-email-toggle" type="button" data-email-login-toggle>Sign in by Institutional Email</button>
                     <div class="auth-credentials-panel" data-email-login-panel hidden>
                         <div class="auth-divider"><span>Account credentials</span></div>
-                        <label class="filter-field"><span>Institutional email</span><input type="email" name="email" value="{{ old('email') }}" autocomplete="email"></label>
+                        <label class="filter-field"><span>NPC institutional email</span><input type="email" name="email" value="{{ old('email') }}" autocomplete="email" placeholder="name@navotaspolytechniccollege.edu.ph" pattern="{{ app()->environment(['local', 'testing']) ? '[A-Za-z0-9._%+-]+@(navotaspolytechniccollege[.]edu[.]ph|cve-demo[.]example[.]com)' : '[A-Za-z0-9._%+-]+@navotaspolytechniccollege[.]edu[.]ph' }}" title="Use your NPC institutional email address."></label>
                         <label class="filter-field"><span>Password</span><input type="password" name="password" autocomplete="current-password"></label>
                         <div class="auth-form-options"><label class="check-field"><input type="checkbox" name="remember" value="1"><span>Remember me</span></label><a href="#" class="text-link">Forgot password?</a></div>
                     </div>
                     <button class="primary-button" type="submit" data-email-submit hidden>Sign in <span aria-hidden="true">↗</span></button>
                 </form>
+                @if (app()->environment(['local', 'testing']))
+                    <details class="demo-account-access">
+                        <summary>Local demo accounts</summary>
+                        <p>Seed with <code>php artisan db:seed</code>. Shared password: <code>password</code>.</p>
+                        <dl>
+                            <div><dt>Student</dt><dd>student@cve-demo.example.com</dd></div>
+                            <div><dt>Organization leader</dt><dd>orgleader@cve-demo.example.com</dd></div>
+                            <div><dt>Admin</dt><dd>admin@cve-demo.example.com</dd></div>
+                            <div><dt>Creator</dt><dd>creator@cve-demo.example.com</dd></div>
+                        </dl>
+                    </details>
+                @endif
                 <p class="auth-footnote">Not an NPC student or organization member? Access is restricted to verified campus users.</p>
             </div>
         </section>

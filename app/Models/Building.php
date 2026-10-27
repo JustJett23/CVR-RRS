@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Building extends Model
 {
     /** @use HasFactory<BuildingFactory> */
-    use HasFactory, SoftDeletes;
+    use HasFactory, LogsSoftDeleteActivity, SoftDeletes;
 
     protected $fillable = ['code', 'name', 'status', 'description'];
 

@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'rrs_ai' => [
+        'url' => env('RRS_AI_URL'),
+        'token' => env('RRS_AI_TOKEN'),
+    ],
+
 ];

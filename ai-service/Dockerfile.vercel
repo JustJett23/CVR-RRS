@@ -1,0 +1,18 @@
+FROM curlimages/curl:8.12.1 AS model
+RUN mkdir -p /models && curl --fail --location --retry 5 --retry-all-errors \
+    --output /models/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+    "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true"
+
+FROM golang:1.27.2-alpine AS build
+WORKDIR /src
+COPY main.go ./main.go
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /rrs-ai main.go
+
+FROM ghcr.io/ggml-org/llama.cpp:server
+ENV MODEL_URL=http://127.0.0.1:11435 \
+    LLAMA_ARG_MODEL=/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
+COPY --from=model /models /models
+COPY --from=build /rrs-ai /usr/local/bin/rrs-ai
+COPY start.sh /usr/local/bin/start-rrs-ai
+EXPOSE 8080
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/start-rrs-ai"]

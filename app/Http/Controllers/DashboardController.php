@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Building;
 use App\Models\MaintenancePeriod;
 use App\Models\Reservation;
 use App\Models\Room;
@@ -33,7 +34,7 @@ class DashboardController extends Controller
     public function floorPlan(Request $request): View
     {
         $validated = $request->validate([
-            'floor' => ['sometimes', 'integer', 'in:1,2,3'],
+            'floor' => ['sometimes', 'integer', 'in:1,2,3,4'],
         ]);
 
         $initialFloor = isset($validated['floor']) ? (int) $validated['floor'] : null;
@@ -47,17 +48,55 @@ class DashboardController extends Controller
     public function rooms(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'floor' => ['required', 'integer', 'in:1,2,3'],
+            'building_id' => ['sometimes', 'integer', 'exists:buildings,id'],
+            'floor' => ['sometimes', 'integer', 'min:1'],
+            'type' => ['sometimes', 'string', 'max:48'],
+            'min_capacity' => ['sometimes', 'integer', 'min:0'],
+            'status' => ['sometimes', 'string', 'in:available,occupied,reserved,maintenance,unavailable'],
         ]);
 
-        $floor = (int) $validated['floor'];
+        $buildings = Building::query()
+            ->where('status', 'active')
+            ->with(['floors' => fn ($query) => $query->select(['id', 'building_id', 'number', 'name'])->orderBy('number')])
+            ->orderBy('name')
+            ->get(['id', 'code', 'name']);
+        $building = $buildings->firstWhere('id', isset($validated['building_id']) ? (int) $validated['building_id'] : null)
+            ?? $buildings->first();
+        $floor = $building?->floors->firstWhere('number', isset($validated['floor']) ? (int) $validated['floor'] : null)
+            ?? $building?->floors->first();
+        $floorNumber = $floor?->number;
+        $floorNumbers = $building?->floors->pluck('number')->all() ?? [];
+        $types = Room::query()
+            ->whereHas('floor', fn ($query) => $query->where('building_id', $building?->id)->when($floorNumber !== null, fn ($query) => $query->where('number', $floorNumber)))
+            ->whereNotNull('type')
+            ->distinct()
+            ->orderBy('type')
+            ->pluck('type');
 
-        $roomsByFloor = $this->roomsByFloor(floorNumber: $floor);
+        $roomsByFloor = $building === null
+            ? []
+            : $this->roomsByFloor(
+                floorNumber: $floorNumber,
+                type: $validated['type'] ?? null,
+                minimumCapacity: isset($validated['min_capacity']) ? (int) $validated['min_capacity'] : null,
+                buildingId: $building->id,
+            );
+        $rooms = $floorNumber === null
+            ? collect($roomsByFloor)->flatten(1)
+            : collect($roomsByFloor[$floorNumber] ?? []);
+
+        if (isset($validated['status'])) {
+            $rooms = $rooms->where('status', $validated['status']);
+        }
 
         return response()->json([
-            'data' => $roomsByFloor[$floor] ?? [],
+            'data' => $rooms->values()->all(),
             'meta' => [
-                'floor' => $floor,
+                'buildings' => $buildings->map(fn (Building $item): array => ['id' => $item->id, 'name' => $item->name])->values(),
+                'building_id' => $building?->id,
+                'floors' => $building?->floors->map(fn ($item): array => ['number' => $item->number, 'name' => $item->name])->values() ?? collect(),
+                'floor' => $floorNumber,
+                'types' => $types,
                 'sample' => false,
             ],
         ]);
@@ -66,10 +105,11 @@ class DashboardController extends Controller
     public function floorPlanData(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'floor' => ['sometimes', 'integer', 'in:1,2,3'],
+            'floor' => ['sometimes', 'integer', 'in:1,2,3,4'],
             'date' => ['sometimes', 'date'],
             'starts_at' => ['sometimes', 'date_format:H:i'],
             'ends_at' => ['sometimes', 'date_format:H:i', 'after:starts_at'],
+            'type' => ['sometimes', 'string', 'max:48'],
         ]);
 
         $floor = isset($validated['floor']) ? (int) $validated['floor'] : null;
@@ -80,13 +120,14 @@ class DashboardController extends Controller
         $windowEnd = isset($validated['ends_at'])
             ? $date->copy()->setTimeFromTimeString($validated['ends_at'])
             : $windowStart->copy()->addMinutes(1);
-        $roomsByFloor = $this->roomsByFloor($windowStart, $windowEnd, $floor);
+        $type = $validated['type'] ?? null;
+        $roomsByFloor = $this->roomsByFloor($windowStart, $windowEnd, $floor, $type);
 
         return response()->json([
             'data' => $floor === null
                 ? collect($roomsByFloor)->flatten(1)->values()->all()
                 : ($roomsByFloor[$floor] ?? []),
-            'upcoming' => $this->upcomingReservations($floor, $date),
+            'upcoming' => $this->upcomingReservations($floor, $date, $type),
             'meta' => [
                 'floor' => $floor,
                 'date' => $date->toDateString(),
@@ -99,19 +140,25 @@ class DashboardController extends Controller
     /**
      * Return room availability derived from persisted rooms and reservations.
      *
-     * @return array<int, array<int, array{id: string, name: string, type: ?string, capacity: int, equipment: string, status: string, next: string}>>
+     * @return array<int, array<int, array{id: string, reservationId: int, name: string, building: string, floorName: string, type: ?string, capacity: int, equipment: string, status: string, next: string}>>
      */
-    private function roomsByFloor(?Carbon $windowStart = null, ?Carbon $windowEnd = null, ?int $floorNumber = null): array
-    {
+    private function roomsByFloor(
+        ?Carbon $windowStart = null,
+        ?Carbon $windowEnd = null,
+        ?int $floorNumber = null,
+        ?string $type = null,
+        ?int $minimumCapacity = null,
+        ?int $buildingId = null,
+    ): array {
         $now = now();
         $windowStart ??= $now;
         $windowEnd ??= $now->copy()->addMinute();
-        $floorNumbers = $floorNumber === null ? [1, 2, 3] : [$floorNumber];
 
         return Room::query()
             ->select(['id', 'floor_id', 'code', 'name', 'type', 'capacity', 'status', 'metadata'])
             ->with([
-                'floor:id,number',
+                'floor:id,building_id,number',
+                'floor.building:id,name',
                 'reservations' => fn ($query) => $query
                     ->select(['id', 'room_id', 'status', 'starts_at', 'ends_at'])
                     ->whereIn('status', ['pending', 'approved'])
@@ -123,7 +170,15 @@ class DashboardController extends Controller
                     ->where('ends_at', '>', $windowStart)
                     ->orderBy('starts_at'),
             ])
-            ->whereHas('floor', fn ($query) => $query->whereIn('number', $floorNumbers))
+            ->whereHas('floor', fn ($query) => $query
+                ->when(
+                    $floorNumber !== null,
+                    fn ($query) => $query->where('number', $floorNumber),
+                    fn ($query) => $query->when($buildingId === null, fn ($query) => $query->whereIn('number', [1, 2, 3, 4])),
+                )
+                ->when($buildingId !== null, fn ($query) => $query->where('building_id', $buildingId)))
+            ->when($type !== null, fn ($query) => $query->where('type', $type))
+            ->when($minimumCapacity !== null, fn ($query) => $query->where('capacity', '>=', $minimumCapacity))
             ->orderBy('code')
             ->get()
             ->groupBy('floor.number')
@@ -132,7 +187,7 @@ class DashboardController extends Controller
     }
 
     /**
-     * @return array{id: string, name: string, type: ?string, capacity: int, equipment: string, status: string, next: string, floor: int}
+     * @return array{id: string, reservationId: int, name: string, building: string, floorName: string, type: ?string, capacity: int, equipment: string, status: string, next: string, floor: int}
      */
     private function roomAvailability(Room $room, Carbon $windowStart, Carbon $windowEnd, Carbon $now): array
     {
@@ -150,7 +205,10 @@ class DashboardController extends Controller
 
         return [
             'id' => $room->code,
+            'reservationId' => (int) $room->getKey(),
             'name' => $room->name,
+            'building' => $room->floor->building->name,
+            'floorName' => $room->floor->name,
             'type' => $room->type,
             'capacity' => $room->capacity,
             'equipment' => $equipment,
@@ -163,7 +221,7 @@ class DashboardController extends Controller
     /**
      * @return array<int, array{id: int, room: string, room_name: string, floor: int, title: string, starts_at: string, ends_at: string, status: string}>
      */
-    private function upcomingReservations(?int $floor, Carbon $date): array
+    private function upcomingReservations(?int $floor, Carbon $date, ?string $type = null): array
     {
         $dayStart = $date->copy()->startOfDay();
         $dayEnd = $dayStart->copy()->addDay();
@@ -176,6 +234,7 @@ class DashboardController extends Controller
             ->where('starts_at', '<', $dayEnd)
             ->when($date->isToday(), fn ($query) => $query->where('starts_at', '>=', now()))
             ->when($floor !== null, fn ($query) => $query->whereHas('room.floor', fn ($floorQuery) => $floorQuery->where('number', $floor)))
+            ->when($type !== null, fn ($query) => $query->whereHas('room', fn ($roomQuery) => $roomQuery->where('type', $type)))
             ->orderBy('starts_at')
             ->limit(8)
             ->get()

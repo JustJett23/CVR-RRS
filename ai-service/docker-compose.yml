@@ -1,0 +1,11 @@
+services:
+  rrs-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile.vercel
+    environment:
+      AI_SERVICE_TOKEN: ${RRS_AI_TOKEN:?Set RRS_AI_TOKEN to a long random secret}
+      PORT: 8080
+    ports:
+      - "${RRS_AI_PORT:-8088}:8080"
+    restart: unless-stopped

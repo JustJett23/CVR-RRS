@@ -17,22 +17,14 @@
             <div class="map-toolbar">
                 <div class="map-title-group"><span class="map-title-mark" aria-hidden="true"><x-icon name="building" /></span><div><h3>Building overview</h3><p>NPC Main Building · live room data</p></div></div>
                 <div class="map-filters">
-                    <label class="select-wrap select-floor"><span class="sr-only">Floor</span><select id="floor-select" aria-label="Floor"><option value="all" @selected($initialFloor === null)>All floors</option><option value="1" @selected($initialFloor === 1)>2F</option><option value="2" @selected($initialFloor === 2)>3F</option><option value="3" @selected($initialFloor === 3)>4F</option></select><span aria-hidden="true"><x-icon name="chevron-down" /></span></label>
+                    <label class="select-wrap select-floor"><span class="sr-only">Floor</span><select id="floor-select" aria-label="Floor"><option value="all" @selected($initialFloor === null)>All mapped floors</option><option value="1" @selected($initialFloor === 1)>2F · Second floor</option><option value="2" @selected($initialFloor === 2)>3F · Third floor</option><option value="3" @selected($initialFloor === 3)>4F · Fourth floor</option><option value="4" @selected($initialFloor === 4)>Roof deck</option></select><span aria-hidden="true"><x-icon name="chevron-down" /></span></label>
                     <label class="select-wrap select-status"><span class="sr-only">Filter rooms by status</span><select id="status-select" aria-label="Filter rooms by status"><option value="all">All statuses</option><option value="available">Available</option><option value="occupied">Occupied</option><option value="reserved">Reserved</option><option value="maintenance">Maintenance</option><option value="unavailable">Unavailable</option></select><span aria-hidden="true">⌄</span></label>
                 </div>
             </div>
 
             <div class="map-stage" id="map-stage">
-                <div class="map-caption"><span class="map-caption-kicker">NPC · MAIN BUILDING · LIVE DATA</span><span class="map-caption-floor" id="map-floor-label">{{ $initialFloor === null ? 'ALL FLOORS' : 'FLOOR 0'.($initialFloor + 1) }}</span></div>
-                @php
-                    $floorModels = json_encode([
-                        asset('assets/NPC_Floor_2f.glb'),
-                        asset('assets/NPC_Floor_3f.glb'),
-                        asset('assets/NPC_Floor_4f.glb'),
-                        asset('assets/NPC_Floor_roof.glb'),
-                    ]);
-                @endphp
-                <div id="floor-plan" data-floor-models="{{ $floorModels }}" data-draco-url="{{ asset('assets/draco/') }}" data-floor-data-endpoint="{{ route('dashboard.floor-plan-data') }}" aria-label="Interactive 3D Navotas Polytechnic College building model. Hover a floor to highlight it, click a floor to inspect it, and drag to rotate." role="application" tabindex="0"></div>
+                <div class="map-caption"><span class="map-caption-kicker">NPC · MAIN BUILDING · LIVE DATA</span><span class="map-caption-floor" id="map-floor-label">{{ [null => 'ALL MAPPED FLOORS', 1 => 'SECOND FLOOR · 2F', 2 => 'THIRD FLOOR · 3F', 3 => 'FOURTH FLOOR · 4F', 4 => 'ROOF DECK'][ $initialFloor ] ?? 'ALL MAPPED FLOORS' }}</span></div>
+                <div id="floor-plan" data-campus-model="{{ asset('assets/npc_campus_room_stack.glb') }}" data-draco-url="{{ asset('assets/draco/') }}" data-floor-data-endpoint="{{ route('dashboard.floor-plan-data') }}" aria-label="Interactive 3D Navotas Polytechnic College room model. Click a floor to inspect it and drag to rotate." role="application" tabindex="0"></div>
                 <button type="button" class="floor-back-button" id="floor-back" hidden>← Back to all floors</button>
                 <div class="map-tooltip" id="map-tooltip" role="status" aria-live="polite" hidden></div>
                 <div class="map-controls" aria-label="Floor plan view controls">
@@ -64,7 +56,7 @@
                 <p class="room-load-message" id="room-load-message" role="status" hidden></p>
                 <div class="room-status-list" id="room-status-list" data-endpoint="{{ route('dashboard.floor-plan-data') }}" aria-live="polite">
                     @foreach ($initialRooms as $room)
-                        <x-room-row :room="$room" :floor="(string) $room['floor']" />
+                        <x-room-row :room="$room" :floor="$room['floorName']" />
                     @endforeach
                     @if (count($initialRooms) === 0)
                         <p class="room-empty-state">No rooms are available right now.</p>
@@ -85,7 +77,9 @@
                 <h3 id="detail-room-name"></h3>
                 <div class="detail-status" id="detail-status"></div>
                 <dl class="room-facts"><div><dt>Capacity</dt><dd id="detail-capacity"></dd></div><div><dt>Equipment</dt><dd id="detail-equipment"></dd></div><div><dt>Next availability</dt><dd id="detail-next"></dd></div></dl>
-                <a class="secondary-button" href="{{ route('reservations') }}">Review reservation steps</a>
+                @unless (in_array(auth()->user()?->role, ['student', 'admin'], true))
+                    <a class="secondary-button" href="{{ route('reservations') }}">Review reservation steps</a>
+                @endunless
             </section>
         </aside>
     </div>

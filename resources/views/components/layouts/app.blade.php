@@ -22,20 +22,36 @@
                     <x-icon name="menu" />
                 </button>
                 <a class="mobile-brand" href="{{ route('dashboard') }}" aria-label="Campus Venue Engine dashboard"><img src="{{ asset('images/campus-venue-engine-logo.svg') }}" alt="" width="30" height="30"><span>Campus Venue Engine</span></a>
-                <div class="breadcrumb"><a href="{{ route('dashboard') }}">Campus</a><span class="breadcrumb-divider">/</span><strong>{{ $pageTitle }}</strong></div>
+                <div class="breadcrumb"><a href="{{ route('dashboard') }}">CVE</a><span class="breadcrumb-divider">/</span><strong>{{ $pageTitle }}</strong></div>
                 <div class="topbar-actions">
-                    <span class="demo-pill"><span class="demo-dot"></span> Database mode</span>
                     <div class="popover-anchor">
                         @php($notifications = auth()->user()->userNotifications()->latest()->limit(5)->get())
-                        @php($unreadNotifications = $notifications->whereNull('read_at')->count())
+                        @php($unreadNotifications = auth()->user()->userNotifications()->whereNull('read_at')->count())
                         <button class="icon-button notification-button" id="notification-toggle" type="button" aria-label="Open notifications" title="Open notifications" data-tooltip="Open notifications" aria-controls="notification-popover" aria-expanded="false"><x-icon name="bell" /><span class="notification-dot" aria-hidden="true" @if($unreadNotifications === 0) hidden @endif></span></button>
-                        <div class="popover notification-popover" id="notification-popover" role="status" aria-live="polite" hidden>
-                            <div class="popover-heading"><strong>Notifications</strong><span class="popover-kicker">DATABASE</span></div>
+                        <div class="popover notification-popover" id="notification-popover" role="region" aria-label="Recent notifications" hidden>
+                            <div class="popover-heading"><strong>Notifications</strong><span class="popover-kicker">LIVE</span></div>
                             @forelse($notifications as $notification)
-                                <div class="notification-item {{ $notification->read_at ? '' : 'is-unread' }}" data-notification-id="{{ $notification->id }}"><strong>{{ $notification->title }}</strong><p>{{ $notification->message }}</p><small class="notification-time" data-created-at="{{ $notification->created_at->toIso8601String() }}">{{ $notification->created_at->diffForHumans() }}</small></div>
+                                <a class="notification-item {{ $notification->read_at ? '' : 'is-unread' }}" href="{{ route('notifications.index') }}#notification-{{ $notification->id }}"><strong>{{ $notification->title }}</strong><p>{{ $notification->message }}</p><small class="notification-time" data-created-at="{{ $notification->created_at->toIso8601String() }}">{{ $notification->created_at->diffForHumans() }}</small></a>
                             @empty
                                 <p>No new notifications. Connected alerts will appear here.</p>
                             @endforelse
+                            <div class="notification-popover-actions">
+                                @if($unreadNotifications > 0)
+                                    <form method="POST" action="{{ route('notifications.read-all') }}">@csrf<button type="submit" class="text-link">Mark all as read</button></form>
+                                @endif
+                                <a class="secondary-button" href="{{ route('notifications.index') }}">Go to notification center</a>
+                            </div>
+                        </div>
+                    </div>
+                    @php($profileName = auth()->user()?->name ?? 'Guest')
+                    <div class="popover-anchor profile-menu-anchor">
+                        <button class="icon-button topbar-account-button" id="profile-menu-toggle" type="button" aria-label="Open account menu" title="Open account menu" aria-controls="profile-menu" aria-expanded="false">
+                            <x-account-avatar class="topbar-avatar" :name="$profileName" />
+                        </button>
+                        <div class="popover profile-popover" id="profile-menu" role="menu" aria-label="Account menu" hidden>
+                            <a class="popover-link" role="menuitem" href="{{ route('profile') }}"><x-icon name="user" /> View profile</a>
+                            <a class="popover-link" role="menuitem" href="{{ route('settings') }}"><x-icon name="settings" /> Settings</a>
+                            <form method="POST" action="{{ route('logout') }}">@csrf<button class="popover-link popover-link-danger" role="menuitem" type="submit"><x-icon name="log-out" /> Logout</button></form>
                         </div>
                     </div>
                 </div>

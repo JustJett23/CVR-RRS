@@ -6,11 +6,12 @@ use Database\Factories\MaintenancePeriodFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class MaintenancePeriod extends Model
 {
     /** @use HasFactory<MaintenancePeriodFactory> */
-    use HasFactory;
+    use HasFactory, LogsSoftDeleteActivity, SoftDeletes;
 
     protected $fillable = ['room_id', 'starts_at', 'ends_at', 'status', 'reason'];
 

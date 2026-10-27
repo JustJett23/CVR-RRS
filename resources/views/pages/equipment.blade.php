@@ -1,23 +1,39 @@
+@php($isStaff = in_array(auth()->user()?->role, ['admin', 'creator'], true))
 <x-layouts.app title="CVR" page-title="Equipment" current-page="equipment">
     <main id="main-content" class="dashboard page-content">
-        <x-page-title eyebrow="OPERATIONS" title="Equipment" description="Track shared campus resources, condition, storage location, and quantities." />
+        <x-page-title eyebrow="OPERATIONS" title="Campus Equipment" description="Check stock before borrowing shared presentation and event equipment." />
 
-        <section class="resource-grid" aria-label="Equipment categories">
-            @foreach ($equipment->groupBy('category') as $category => $items)
-                <details class="resource-tile resource-dropdown">
-                    <summary><span class="resource-icon"><x-icon name="package" /></span><span><h2>{{ $category ?: 'Other equipment' }}</h2><p>{{ $items->count() }} database item{{ $items->count() === 1 ? '' : 's' }}</p></span><span class="resource-count">⌄</span></summary>
-                    <div class="resource-dropdown-list">@foreach ($items as $item)<div><strong>{{ $item->name }}</strong><span>{{ $item->available_quantity }} of {{ $item->quantity }} available</span></div>@endforeach</div>
-                </details>
-            @endforeach
+        <section class="equipment-catalog-grid" aria-label="Campus equipment inventory">
+            @forelse ($equipment as $item)
+                @php($equipmentIcon = match ($item->category) { 'Presentation' => 'projector', 'Cables' => 'cable', 'Power' => 'plug', default => 'package' })
+                <article class="equipment-card">
+                    <div class="equipment-card-art" aria-hidden="true"><x-icon :name="$equipmentIcon" /></div>
+                    <div class="equipment-card-body">
+                        <p class="eyebrow">{{ $item->category ?: 'CAMPUS EQUIPMENT' }}</p>
+                        <h2>{{ $item->name }}</h2>
+                        @if ($item->description)<p class="equipment-card-description">{{ $item->description }}</p>@endif
+                        <dl class="equipment-card-facts">
+                            <div><dt>Availability</dt><dd class="{{ $item->available_quantity > 0 ? 'is-available' : 'is-unavailable' }}">{{ $item->available_quantity > 0 ? 'Available' : 'Out of stock' }}</dd></div>
+                            <div><dt>How many</dt><dd>{{ $item->available_quantity }} available · {{ $item->quantity }} total</dd></div>
+                        </dl>
+                    </div>
+                    <footer class="equipment-card-footer">
+                        @if (! $isStaff)
+                            @if ($item->available_quantity > 0)
+                                <a class="primary-button equipment-borrow-button" href="{{ route('equipment-requests', ['equipment_id' => $item->id]) }}">Borrow {{ $item->name }}</a>
+                            @else
+                                <span class="secondary-button equipment-borrow-button is-disabled" aria-disabled="true">Borrow {{ $item->name }}</span>
+                            @endif
+                        @else
+                            <span class="equipment-stock-note">Inventory managed by available stock</span>
+                        @endif
+                    </footer>
+                </article>
+            @empty
+                <div class="content-panel equipment-catalog-empty"><x-empty-state icon="package" eyebrow="NO INVENTORY" title="No equipment records" description="Sample equipment appears here after the equipment inventory seeder runs." /></div>
+            @endforelse
         </section>
 
-        <section class="content-panel" aria-labelledby="equipment-inventory-title">
-            <div class="content-panel-heading"><div><p class="eyebrow">RESOURCE INVENTORY</p><h2 id="equipment-inventory-title">Campus equipment</h2></div><span class="live-indicator"><i></i> Live database</span></div>
-            @if ($equipment->isEmpty())
-                <x-empty-state icon="package" eyebrow="NO INVENTORY" title="No equipment records" description="Equipment will appear here when it is entered in the campus database." action-label="Open equipment requests" :action-href="route('equipment-requests')" />
-            @else
-                <p class="availability-note">{{ $equipment->count() }} equipment records loaded from the campus database.</p>
-            @endif
-        </section>
+        <p class="map-data-note">Availability and quantities come from the campus equipment database.</p>
     </main>
 </x-layouts.app>

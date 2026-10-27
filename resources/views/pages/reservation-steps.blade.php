@@ -1,6 +1,6 @@
 <x-layouts.app title="CVR" page-title="Reservation Steps" current-page="reservations">
     <main id="main-content" class="dashboard page-content">
-        <x-page-title eyebrow="PLANNING" title="Reservation Steps" description="Use the live room directory and schedule to prepare a request." action-label="Reserve a room" :action-href="route('reservations')" />
+        <x-page-title eyebrow="PLANNING" title="Reservation Steps" description="Use the live room directory and schedule to prepare a request." :action-label="auth()->user()?->role === 'student' ? null : 'Reserve a room'" :action-href="auth()->user()?->role === 'student' ? null : route('reservations')" />
         <section class="content-panel" aria-labelledby="steps-title">
             <div class="content-panel-heading"><div><p class="eyebrow">GUIDE</p><h2 id="steps-title">From room search to submission</h2></div><span class="live-indicator"><i></i> Database workflow</span></div>
             <ol class="workflow-list">

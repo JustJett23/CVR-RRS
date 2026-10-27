@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Room extends Model
 {
     /** @use HasFactory<RoomFactory> */
-    use HasFactory, SoftDeletes;
+    use HasFactory, LogsSoftDeleteActivity, SoftDeletes;
 
     protected $fillable = ['floor_id', 'code', 'name', 'type', 'capacity', 'status', 'description', 'metadata'];
 

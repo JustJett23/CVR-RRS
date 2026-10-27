@@ -27,8 +27,17 @@
     "file": "assets/instrument-sans-600-normal-B9e8oLYv.woff",
     "src": "_instrument-sans-600-normal-B9e8oLYv.woff"
   },
+  "node_modules/qrcode/lib/browser.js": {
+    "file": "assets/browser-CFXIiZ0g.js",
+    "name": "browser",
+    "src": "node_modules/qrcode/lib/browser.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "resources/js/app.js"
+    ]
+  },
   "node_modules/tesseract.js/src/index.js": {
-    "file": "assets/src-DfCNjPIi.js",
+    "file": "assets/src-B0kQ3kHj.js",
     "name": "src",
     "src": "node_modules/tesseract.js/src/index.js",
     "isDynamicEntry": true,
@@ -88,7 +97,7 @@
     ]
   },
   "resources/css/app.css": {
-    "file": "assets/app-B_FsbdIa.css",
+    "file": "assets/app-oLy8FvcW.css",
     "name": "app",
     "names": [
       "app.css"
@@ -97,7 +106,7 @@
     "isEntry": true
   },
   "resources/js/app.js": {
-    "file": "assets/app-DCXUBDe5.js",
+    "file": "assets/app-0huqAPPz.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true,
@@ -105,7 +114,8 @@
       "node_modules/three/build/three.module.js",
       "node_modules/three/examples/jsm/loaders/GLTFLoader.js",
       "node_modules/three/examples/jsm/loaders/DRACOLoader.js",
-      "node_modules/tesseract.js/src/index.js"
+      "node_modules/tesseract.js/src/index.js",
+      "node_modules/qrcode/lib/browser.js"
     ]
   }
 }

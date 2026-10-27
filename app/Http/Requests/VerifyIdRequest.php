@@ -10,20 +10,39 @@ class VerifyIdRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
-        $studentNumber = preg_replace('/\D+/', '', (string) $this->input('scanned_student_number'));
-        $contact = preg_replace('/\D+/', '', (string) $this->input('scanned_contact'));
-        if (Str::startsWith($contact, '63')) {
+        $studentNumberInput = $this->input('scanned_student_number');
+        $contactInput = $this->input('scanned_contact');
+        $organizationInput = $this->input('organization_id');
+        $emailInput = $this->input('email');
+        $studentNumber = $this->digitsOnly($studentNumberInput);
+        $contact = $this->digitsOnly($contactInput);
+
+        if (Str::startsWith($contact, '0063')) {
+            $contact = '0'.substr($contact, 4);
+        } elseif (Str::startsWith($contact, '63')) {
             $contact = '0'.substr($contact, 2);
+        } elseif (preg_match('/^9\d{9}$/', $contact) === 1) {
+            $contact = '0'.$contact;
         }
+
+        $organizationId = is_string($organizationInput) ? strtoupper(trim($organizationInput)) : '';
+        $email = is_string($emailInput) ? strtolower(trim($emailInput)) : '';
 
         $this->merge([
             'scanned_student_number' => $studentNumber,
             'scanned_contact' => $contact,
-            'organization_id' => ($organizationId = strtoupper(trim((string) $this->input('organization_id')))) !== ''
-                ? $organizationId
-                : null,
-            'email' => $this->filled('email') ? strtolower(trim((string) $this->input('email'))) : null,
+            'organization_id' => $organizationId !== '' ? $organizationId : null,
+            'email' => $email !== '' ? $email : null,
         ]);
+    }
+
+    private function digitsOnly(mixed $value): string
+    {
+        if (! is_string($value) && ! is_numeric($value)) {
+            return '';
+        }
+
+        return preg_replace('/\D+/', '', (string) $value) ?? '';
     }
 
     /**
@@ -45,12 +64,25 @@ class VerifyIdRequest extends FormRequest
             'scanned_name' => ['required', 'string', 'max:150'],
             'scanned_course' => ['required', 'string', 'max:150'],
             'scanned_student_number' => ['required', 'regex:/^[0-9]{6}$/', 'unique:users,student_number'],
-            'scanned_contact' => ['required', 'regex:/^(?:09\d{9}|\+63\s*9\d{9})$/'],
+            'scanned_contact' => ['required', 'regex:/^09\d{9}$/'],
             'emergency_contact' => ['required', 'string', 'max:150'],
             'organization_id' => ['nullable', 'string', 'max:50', 'regex:/^ICS$/i'],
             'email' => ['nullable', 'email', 'regex:/^[^@\s]+@navotaspolytechniccollege\.edu\.ph$/i', 'unique:users,email'],
             'password' => ['nullable', 'string', 'min:1'],
             'remember' => ['sometimes', 'boolean'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'scanned_contact.required' => 'Enter your contact number manually if scanning did not read it.',
+            'scanned_contact.regex' => 'Enter a valid Philippine mobile number in 09XXXXXXXXX format.',
+            'scanned_student_number.unique' => 'An account already exists for this student number. Sign in with your NPC institutional email instead.',
+            'email.unique' => 'An account already exists for this institutional email. Sign in instead.',
         ];
     }
 }

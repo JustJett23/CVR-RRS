@@ -71,6 +71,17 @@
         @case('package')
             <path d="m12 3 9 5v8l-9 5-9-5V8l9-5Zm-9 5 9 5 9-5m-9 5v8m-4-15 9 5" />
             @break
+        @case('projector')
+            <rect x="3" y="6" width="18" height="11" rx="2" />
+            <circle cx="16.5" cy="11.5" r="2.2" />
+            <path d="M7 17v3m10-3v3M6 3h5m-4 3V3" />
+            @break
+        @case('cable')
+            <path d="M7 7v4a5 5 0 0 0 10 0V9m-13-4v4h6V5m7 0v4h6V5M9 20h6" />
+            @break
+        @case('plug')
+            <path d="M9 3v6m6-6v6m-9-1h12v3a6 6 0 0 1-6 6v5m-3-14v3a6 6 0 0 0 6 6" />
+            @break
         @case('chart')
             <path d="M4 19V5m0 14h17M8 15v-4m5 4V7m5 8V9" />
             @break
@@ -90,6 +101,13 @@
             @break
         @case('plus')
             <path d="M12 5v14M5 12h14" />
+            @break
+        @case('send')
+            <path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13" />
+            @break
+        @case('alert')
+            <path d="M10.3 3.9 2.2 18a2 2 0 0 0 1.7 3h16.2a2 2 0 0 0 1.7-3l-8.1-14.1a2 2 0 0 0-3.4 0Z" />
+            <path d="M12 9v4m0 4h.01" />
             @break
         @case('minus')
             <path d="M5 12h14" />

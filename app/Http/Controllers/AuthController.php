@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\LoginRequest;
+use App\Http\Requests\LookupExistingStudentRequest;
 use App\Http\Requests\VerifyIdRequest;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\AccountRolePath;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -13,8 +15,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -23,23 +27,92 @@ class AuthController extends Controller
         return view('auth.login');
     }
 
-    public function store(LoginRequest $request): RedirectResponse
+    public function store(LoginRequest $request): JsonResponse
     {
         $credentials = $request->safe()->only(['email', 'password']);
 
         if (! Auth::attempt($credentials, $request->boolean('remember'))) {
-            return back()->withErrors(['email' => 'The provided credentials are incorrect.'])->onlyInput('email');
+            $message = 'The provided credentials are incorrect.';
+
+            return response()->json([
+                'message' => $message,
+                'errors' => ['email' => [$message]],
+            ], 422)->header('Cache-Control', 'no-store, private');
         }
 
-        if (! $request->user()->is_active) {
+        $user = $request->user();
+        if (! $user->is_active) {
             Auth::logout();
+            $message = 'This account is inactive.';
 
-            return back()->withErrors(['email' => 'This account is inactive.'])->onlyInput('email');
+            return response()->json([
+                'message' => $message,
+                'errors' => ['email' => [$message]],
+            ], 403)->header('Cache-Control', 'no-store, private');
         }
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard'));
+        return response()->json([
+            'authenticated' => true,
+            'redirect' => $this->dashboardRedirect($user),
+        ])
+            ->header('Cache-Control', 'no-store, private');
+    }
+
+    public function lookupExistingStudent(LookupExistingStudentRequest $request): JsonResponse
+    {
+        $data = $request->validated();
+        $user = User::query()
+            ->where('student_number', $data['scanned_student_number'])
+            ->where('role', 'student')
+            ->where('is_active', true)
+            ->first(['name', 'course', 'contact_number', 'emergency_contact', 'emergency_contact_name', 'emergency_contact_phone']);
+
+        $identityMatches = $user !== null
+            && $this->identityNameMatches($user->name, $data['scanned_name'])
+            && hash_equals($this->normalizeIdentityValue((string) $user->course), $this->normalizeIdentityValue($data['scanned_course']));
+
+        if (! $identityMatches) {
+            return response()->json(['matched' => false])
+                ->header('Cache-Control', 'no-store, private');
+        }
+
+        $emergencyContact = trim((string) $user->emergency_contact);
+        if ($emergencyContact === '') {
+            $emergencyContact = collect([$user->emergency_contact_name, $user->emergency_contact_phone])
+                ->map(static fn (?string $value): string => trim((string) $value))
+                ->filter()
+                ->implode(' · ');
+        }
+
+        return response()->json([
+            'matched' => true,
+            'contact_number' => $user->contact_number,
+            'emergency_contact' => $emergencyContact !== '' ? $emergencyContact : null,
+        ])->header('Cache-Control', 'no-store, private');
+    }
+
+    private function normalizeIdentityValue(string $value): string
+    {
+        return preg_replace('/[^\pL\pN]/u', '', mb_strtolower(trim($value))) ?? '';
+    }
+
+    private function identityNameMatches(string $savedName, string $scannedName): bool
+    {
+        $normalizedSavedName = $this->normalizeIdentityValue($savedName);
+        $normalizedScannedName = $this->normalizeIdentityValue($scannedName);
+
+        if ($normalizedSavedName === $normalizedScannedName) {
+            return true;
+        }
+
+        if (! preg_match('/\A[a-z0-9]{8,}\z/', $normalizedSavedName)
+            || ! preg_match('/\A[a-z0-9]{8,}\z/', $normalizedScannedName)) {
+            return false;
+        }
+
+        return levenshtein($normalizedSavedName, $normalizedScannedName) <= 1;
     }
 
     public function verifyId(VerifyIdRequest $request): JsonResponse
@@ -106,11 +179,36 @@ class AuthController extends Controller
                 return $user;
             }, 3);
         } catch (QueryException $exception) {
-            if ((string) $exception->getCode() === '23000') {
-                return response()->json(['message' => 'An account already exists for this student number or institutional email.'], 409);
+            $sqlState = (string) $exception->getCode();
+            $driverCode = (int) ($exception->errorInfo[1] ?? 0);
+            $driverMessage = (string) ($exception->errorInfo[2] ?? '');
+            $driverMessage = preg_replace("/'[^']*'/", "'[redacted]'", $driverMessage) ?? '';
+            $isUniqueViolation = $sqlState === '23505'
+                || ($sqlState === '23000' && in_array($driverCode, [1062, 1555, 2067], true));
+
+            if ($isUniqueViolation) {
+                return response()->json([
+                    'message' => 'An account already exists for this student number or institutional email.',
+                ], 409);
             }
 
-            throw $exception;
+            Log::error('Student ID verification database operation failed.', [
+                'sql_state' => $sqlState,
+                'driver_code' => $driverCode,
+                'driver_message' => mb_substr($driverMessage, 0, 180),
+            ]);
+
+            return response()->json([
+                'message' => 'Account verification is temporarily unavailable. Please try again shortly.',
+            ], 503)->header('Cache-Control', 'no-store, private');
+        } catch (Throwable $exception) {
+            Log::error('Student ID verification failed unexpectedly.', [
+                'exception' => $exception::class,
+            ]);
+
+            return response()->json([
+                'message' => 'Account verification could not be completed. Your details are still available; retry shortly or use institutional email sign-in.',
+            ], 503)->header('Cache-Control', 'no-store, private');
         }
 
         Auth::login($user, $request->boolean('remember'));
@@ -118,7 +216,16 @@ class AuthController extends Controller
         $emailMessage = $request->filled('email') ? 'institutional email accepted' : 'institutional email generated';
         $request->session()->flash('onboarding_notification', 'NPC ID verified. Personal QR token created, '.$emailMessage.', and your temporary password was securely saved.');
 
-        return response()->json(['redirect' => route('dashboard')]);
+        return response()->json([
+            'authenticated' => true,
+            'redirect' => $this->dashboardRedirect($user),
+        ])
+            ->header('Cache-Control', 'no-store, private');
+    }
+
+    private function dashboardRedirect(User $user): string
+    {
+        return route('dashboard', ['role' => AccountRolePath::for($user)], absolute: false);
     }
 
     private function institutionalEmail(string $name, string $studentNumber): string

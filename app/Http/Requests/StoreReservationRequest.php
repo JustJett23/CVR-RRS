@@ -12,7 +12,7 @@ class StoreReservationRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->is_active === true;
+        return $this->user()?->is_active === true && $this->user()?->role !== 'student';
     }
 
     /**
@@ -26,7 +26,7 @@ class StoreReservationRequest extends FormRequest
             'room_id' => ['required', 'integer', 'exists:rooms,id'],
             'purpose' => ['required', 'string', 'max:255'],
             'organization_name' => ['nullable', 'string', 'max:255'],
-            'starts_at' => ['required', 'date'],
+            'starts_at' => ['required', 'date', 'after:now'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];

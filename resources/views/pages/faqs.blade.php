@@ -1,0 +1,48 @@
+<x-layouts.app title="CVR" page-title="Frequently Asked Questions" current-page="help">
+    @php($isStudent = auth()->user()?->role === 'student')
+    <main id="main-content" class="dashboard page-content">
+        <x-page-title eyebrow="HELP & SUPPORT" title="Frequently Asked Questions" description="Answers to common questions about using the Room Reservation System." />
+
+        <section class="content-panel faq-page-panel" aria-labelledby="faq-page-title">
+            <div class="content-panel-heading">
+                <div><p class="eyebrow">ROOM RESERVATION SYSTEM</p><h2 id="faq-page-title">How can we help?</h2></div>
+                <a class="text-link" href="{{ route('help') }}">Back to Help &amp; Support</a>
+            </div>
+            <label class="filter-field faq-search-field" for="faq-search"><span>Search FAQs</span><input id="faq-search" type="search" placeholder="Try “approval” or “availability”" data-faq-search></label>
+
+            <div class="faq-category" data-faq-category>
+                <h3>Finding rooms and schedules</h3>
+                <details class="faq-item" data-faq-item><summary>Where can I find rooms available for a specific date and time?</summary><p>Open Room Availability and select a date and time to review the rooms that match. The Room Directory provides room details and floor information.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('availability') }}">Open Room Availability</a><a class="secondary-button" href="{{ route('rooms') }}">Open Room Directory</a></div></details>
+                <details class="faq-item" data-faq-item><summary>Are room availability and reservation statuses live?</summary><p>Room and reservation information is loaded from the system database. Availability can change when a request is submitted or its status is updated, so check again before planning.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('availability') }}">Check Availability</a><a class="secondary-button" href="{{ route('schedule') }}">Open Schedule Timeline</a></div></details>
+                <details class="faq-item" data-faq-item><summary>How do I see a room’s location, capacity, or equipment?</summary><p>Browse the Room Directory for room details. The floor plan also helps locate rooms by building and floor.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('rooms') }}">Open Room Directory</a><a class="secondary-button" href="{{ route('floor-plan') }}">View 3D Floor Plan</a></div></details>
+                <details class="faq-item" data-faq-item><summary>Can I see the schedule for a room?</summary><p>Use Schedule Timeline or Room Availability to review scheduled activity. Select the room and date that match your planning needs.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('schedule') }}">Open Schedule Timeline</a><a class="secondary-button" href="{{ route('availability') }}">Check Availability</a></div></details>
+            </div>
+
+            @unless ($isStudent)
+            <div class="faq-category" data-faq-category>
+                <h3>Creating and managing reservations</h3>
+                <details class="faq-item" data-faq-item><summary>How do I request a room?</summary><p>Open Reservations, choose an available room and time, complete the request details, and submit. The system checks for scheduling conflicts before saving the request.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('reservations') }}">Open Reservations</a></div></details>
+                <details class="faq-item" data-faq-item><summary>What information should I prepare before requesting a room?</summary><p>Choose the room and requested time, and prepare the activity purpose and any other information shown as required on the request form.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('reservations') }}">Open Reservation Form</a></div></details>
+                <details class="faq-item" data-faq-item><summary>Why can’t I select a room or time?</summary><p>The room may be inactive, unavailable for the selected time, or conflict with another reservation or maintenance period. Try another time or room, then review availability.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('availability') }}">Check Availability</a><a class="secondary-button" href="{{ route('reservations') }}">Open Reservations</a></div></details>
+                <details class="faq-item" data-faq-item><summary>What happens after I submit a request?</summary><p>Your request is recorded and may need review by an authorized staff member. Check Reservations or Notifications for its current status.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('reservations') }}">Track Reservations</a><a class="secondary-button" href="{{ route('notifications.index') }}">Open Notifications</a></div></details>
+                <details class="faq-item" data-faq-item><summary>How do I know if my reservation is approved?</summary><p>Check the request status on Reservations and review system notifications. Do not assume a request is approved until its status says so.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('reservations') }}">Track Reservations</a><a class="secondary-button" href="{{ route('notifications.index') }}">Open Notifications</a></div></details>
+                <details class="faq-item" data-faq-item><summary>Can I edit or cancel a submitted reservation?</summary><p>Available actions depend on the request status and your account permissions. Open Reservations and use an action displayed for that request, or contact campus support if no suitable action is available.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('reservations') }}">Manage Reservations</a><a class="secondary-button" href="{{ route('help') }}">Contact Support</a></div></details>
+                <details class="faq-item" data-faq-item><summary>Why was my reservation request rejected?</summary><p>Review the status or feedback shown with the request. If the reason is unclear, contact campus support from the Help &amp; Support page.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('reservations') }}">Review Request</a><a class="secondary-button" href="{{ route('help') }}">Open Help &amp; Support</a></div></details>
+                <details class="faq-item" data-faq-item><summary>Can two requests use the same room at the same time?</summary><p>The system checks for overlapping reservations before accepting a request. If it finds a conflict, choose another available time or room.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('availability') }}">Check Availability</a><a class="secondary-button" href="{{ route('schedule') }}">View Schedule</a></div></details>
+            </div>
+            @endunless
+
+            <div class="faq-category" data-faq-category>
+                <h3>Accounts, access, and help</h3>
+                <details class="faq-item" data-faq-item><summary>Who can sign in to the system?</summary><p>Access depends on an active, authorized campus account. If you cannot sign in or think your access is incorrect, contact campus support.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('profile') }}">Open My Profile</a><a class="secondary-button" href="{{ route('help') }}">Contact Support</a></div></details>
+                <details class="faq-item" data-faq-item><summary>What should I do if I forget my password?</summary><p>Use the account recovery process provided by your campus administrator. If you are signed in, you can update your password in Settings.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('settings') }}">Open Settings</a><a class="secondary-button" href="{{ route('help') }}">Contact Support</a></div></details>
+                <details class="faq-item" data-faq-item><summary>Why do I see different actions from another user?</summary><p>Available pages and actions depend on your account role and access permissions. Contact campus support if you believe your permissions are incorrect.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('profile') }}">View My Profile</a><a class="secondary-button" href="{{ route('help') }}">Open Help &amp; Support</a></div></details>
+                <details class="faq-item" data-faq-item><summary>How do I use the AI chatbot safely?</summary><p>The chatbot uses an AI model with a fixed, synthetic RRS help guide. It cannot see live room, account, or reservation data. Questions are processed by the configured AI service and are not saved by this app. Do not enter your name, student number, contact information, login credentials, or reservation details.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('help.chatbot') }}">Open Room Reservation Chatbot</a></div></details>
+                @unless ($isStudent)
+                    <details class="faq-item" data-faq-item><summary>Where can I get more help with the reservation process?</summary><p>Read the reservation steps, ask the RRS help chatbot, or use the contact details shown on the Help &amp; Support page.</p><div class="faq-actions"><a class="secondary-button" href="{{ route('help.reservation-steps') }}">Open Reservation Steps</a><a class="secondary-button" href="{{ route('help.chatbot') }}">Ask the Chatbot</a></div></details>
+                @endunless
+            </div>
+            <p class="faq-no-results" data-faq-empty hidden>No FAQs match that search. Try a different word or contact campus support.</p>
+        </section>
+    </main>
+</x-layouts.app>
